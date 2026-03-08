@@ -13,14 +13,22 @@
     #elif defined(__GNUC__) || defined(__clang__)
         #include <cpuid.h>
         static inline void cpuid_impl(int info[4], int leaf) {
-            __cpuid(leaf,
-                    (unsigned int&)info[0], (unsigned int&)info[1],
-                    (unsigned int&)info[2], (unsigned int&)info[3]);
+            unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+            __get_cpuid(static_cast<unsigned int>(leaf), &eax, &ebx, &ecx, &edx);
+            info[0] = static_cast<int>(eax);
+            info[1] = static_cast<int>(ebx);
+            info[2] = static_cast<int>(ecx);
+            info[3] = static_cast<int>(edx);
         }
         static inline void cpuidex_impl(int info[4], int leaf, int sub) {
-            __cpuid_count(leaf, sub,
-                          (unsigned int&)info[0], (unsigned int&)info[1],
-                          (unsigned int&)info[2], (unsigned int&)info[3]);
+            unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+            __get_cpuid_count(static_cast<unsigned int>(leaf),
+                              static_cast<unsigned int>(sub),
+                              &eax, &ebx, &ecx, &edx);
+            info[0] = static_cast<int>(eax);
+            info[1] = static_cast<int>(ebx);
+            info[2] = static_cast<int>(ecx);
+            info[3] = static_cast<int>(edx);
         }
         #define CPUID(info, leaf) cpuid_impl(info, leaf)
         #define CPUIDEX(info, leaf, sub) cpuidex_impl(info, leaf, sub)
