@@ -98,7 +98,7 @@ void PsuEngine::stop_gpu_load() {
 void PsuEngine::controller_thread_func(PsuLoadPattern pattern, int duration_secs) {
     auto deadline = (duration_secs > 0)
         ? start_time_ + std::chrono::seconds(duration_secs)
-        : std::chrono::steady_clock::time_point::max();
+        : (std::chrono::steady_clock::time_point::max)();
 
     auto has_time = [&]() {
         return !stop_requested_.load() &&

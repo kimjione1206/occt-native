@@ -230,7 +230,7 @@ VerifyResult stress_and_verify_sse(uint64_t /*duration_ns*/) {
 
 #if defined(__AVX2__) && defined(__FMA__) || defined(_MSC_VER)
 
-#ifdef __AVX2__
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx2,fma")))
 #endif
 uint64_t stress_avx2(uint64_t duration_ns) {
@@ -281,7 +281,7 @@ uint64_t stress_avx2(uint64_t duration_ns) {
     return ops;
 }
 
-#ifdef __AVX2__
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx2,fma")))
 #endif
 VerifyResult stress_and_verify_avx2(uint64_t duration_ns) {
@@ -352,7 +352,7 @@ VerifyResult stress_and_verify_avx2(uint64_t duration_ns) {
 
 #if defined(__AVX512F__) || (defined(_MSC_VER) && defined(__AVX512F__))
 
-#ifdef __AVX512F__
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx512f")))
 #endif
 uint64_t stress_avx512(uint64_t duration_ns) {
@@ -403,7 +403,7 @@ uint64_t stress_avx512(uint64_t duration_ns) {
     return ops;
 }
 
-#ifdef __AVX512F__
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx512f")))
 #endif
 VerifyResult stress_and_verify_avx512(uint64_t duration_ns) {

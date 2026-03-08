@@ -23,6 +23,7 @@ static inline void __cpuidex(int info[4], int leaf, int sub) {
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #include <intrin.h>
 #elif defined(__APPLE__)

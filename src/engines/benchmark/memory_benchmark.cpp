@@ -31,6 +31,7 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #define NOMINMAX
     #include <windows.h>
 #else
     #include <cstdlib>
@@ -72,7 +73,7 @@ double MemoryBenchmark::measure_read_bw(size_t buffer_size) {
     std::memset(buffer, 0xAA, buffer_size);
 
     volatile uint64_t sink = 0;
-    auto best_time = std::chrono::duration<double>::max();
+    auto best_time = (std::chrono::duration<double>::max)();
 
     for (int pass = 0; pass < NUM_PASSES; ++pass) {
         auto start = std::chrono::steady_clock::now();
@@ -135,7 +136,7 @@ double MemoryBenchmark::measure_write_bw(size_t buffer_size) {
 
     std::memset(buffer, 0, buffer_size);
 
-    auto best_time = std::chrono::duration<double>::max();
+    auto best_time = (std::chrono::duration<double>::max)();
 
     for (int pass = 0; pass < NUM_PASSES; ++pass) {
         auto start = std::chrono::steady_clock::now();
@@ -196,7 +197,7 @@ double MemoryBenchmark::measure_copy_bw(size_t buffer_size) {
     std::memset(src_buf, 0xAA, buffer_size);
     std::memset(dst_buf, 0, buffer_size);
 
-    auto best_time = std::chrono::duration<double>::max();
+    auto best_time = (std::chrono::duration<double>::max)();
 
     for (int pass = 0; pass < NUM_PASSES; ++pass) {
         auto start = std::chrono::steady_clock::now();

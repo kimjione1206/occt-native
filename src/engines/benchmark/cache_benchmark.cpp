@@ -38,6 +38,7 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #define NOMINMAX
     #include <windows.h>
 #elif defined(__linux__) || defined(__APPLE__)
     #include <sys/mman.h>
@@ -207,7 +208,7 @@ double CacheBenchmark::measure_read_bandwidth_gbs(size_t buffer_size_bytes) {
     std::memset(buffer, 0xAA, buffer_size_bytes);
 
     volatile uint64_t sink = 0;
-    auto best_time = std::chrono::duration<double>::max();
+    auto best_time = (std::chrono::duration<double>::max)();
 
     for (int pass = 0; pass < BANDWIDTH_PASSES; ++pass) {
         auto start = std::chrono::steady_clock::now();
@@ -287,7 +288,7 @@ double CacheBenchmark::measure_write_bandwidth_gbs(size_t buffer_size_bytes) {
 
     std::memset(buffer, 0, buffer_size_bytes);
 
-    auto best_time = std::chrono::duration<double>::max();
+    auto best_time = (std::chrono::duration<double>::max)();
 
     for (int pass = 0; pass < BANDWIDTH_PASSES; ++pass) {
         auto start = std::chrono::steady_clock::now();
