@@ -1,0 +1,238 @@
+name: Windows Build & CLI Test
+
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+  QT_VERSION: '6.7.2'
+
+jobs:
+  build-and-test:
+    name: Windows x64 Build + CLI Tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Install Qt6 ──────────────────────────────────────────────────
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: 'qtcharts'
+          cache: true
+
+      # ── Configure CMake ──────────────────────────────────────────────
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
+
+      # ── Build ─────────────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      # ── Verify executable exists ──────────────────────────────────────
+      - name: Verify Build Output
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1
+          if ($exe) {
+            Write-Host "Found: $($exe.FullName)"
+            Write-Host "Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
+          } else {
+            Write-Error "occt_native.exe not found!"
+            exit 1
+          }
+
+      # ── CLI Help Test ─────────────────────────────────────────────────
+      - name: CLI Help Test
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CLI Help Output ==="
+          & $exe --cli --help
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── CPU Benchmark Test (short) ────────────────────────────────────
+      - name: CPU Stress Test (10s, AVX2)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU AVX2 FMA Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode avx2 --threads auto --duration 10
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── CPU SSE Test ──────────────────────────────────────────────────
+      - name: CPU SSE Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU SSE Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode sse --duration 10
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── CPU Linpack Test ──────────────────────────────────────────────
+      - name: CPU Linpack Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Linpack Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode linpack --duration 10
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── CPU Prime Test ────────────────────────────────────────────────
+      - name: CPU Prime Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Prime Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode prime --duration 10
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── CPU Variable Load Pattern Test ────────────────────────────────
+      - name: CPU Variable Load Pattern Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Variable Pattern Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode avx2 --load-pattern variable --duration 10
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── RAM March C- Test ─────────────────────────────────────────────
+      - name: RAM March C- Test (1 pass, 5%)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM March C- Test ==="
+          & $exe --cli --test ram --mode march_c --memory 5 --passes 1
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── RAM Walking Ones Test ─────────────────────────────────────────
+      - name: RAM Walking Ones Test (1 pass, 5%)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM Walking Ones Test ==="
+          & $exe --cli --test ram --mode walking --memory 5 --passes 1
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── RAM Bandwidth Test ────────────────────────────────────────────
+      - name: RAM Bandwidth Test (1 pass, 5%)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM Bandwidth Test ==="
+          & $exe --cli --test ram --mode bandwidth --memory 5 --passes 1
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Storage Sequential Write Test ─────────────────────────────────
+      - name: Storage Sequential Write Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Seq Write Test (10 seconds) ==="
+          & $exe --cli --test storage --mode write --duration 10 --file-size 64 --queue-depth 4
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Storage Sequential Read Test ──────────────────────────────────
+      - name: Storage Sequential Read Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Seq Read Test (10 seconds) ==="
+          & $exe --cli --test storage --mode read --duration 10 --file-size 64 --queue-depth 4
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Storage Random I/O Test ───────────────────────────────────────
+      - name: Storage Random Read/Write Test (10s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Random R/W Test (10 seconds) ==="
+          & $exe --cli --test storage --mode mixed --duration 10 --file-size 64 --queue-depth 8
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Benchmark Cache Test ──────────────────────────────────────────
+      - name: Cache Benchmark Test
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Cache Benchmark ==="
+          & $exe --cli --test benchmark --mode cache
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Benchmark Memory Test ─────────────────────────────────────────
+      - name: Memory Benchmark Test
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Memory Benchmark ==="
+          & $exe --cli --test benchmark --mode memory
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Monitor-Only Test ─────────────────────────────────────────────
+      - name: Monitor-Only Sensor Test (5s)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Monitor-Only Test (5 seconds) ==="
+          & $exe --cli --monitor-only --duration 5
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Report Generation Test ────────────────────────────────────────
+      - name: Report Generation Test (JSON)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Test with JSON Report ==="
+          & $exe --cli --test cpu --mode sse --duration 5 --report json --output test_results
+          if (Test-Path "test_results") {
+            Write-Host "=== Report files generated ==="
+            Get-ChildItem test_results -Recurse | ForEach-Object { Write-Host "  $($_.Name) ($([math]::Round($_.Length / 1KB, 1)) KB)" }
+          }
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
+      # ── Upload test results ───────────────────────────────────────────
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-test-results
+          path: test_results/
+          if-no-files-found: warn
+          retention-days: 7
+
+      # ── Test Summary ──────────────────────────────────────────────────
+      - name: Test Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "╔══════════════════════════════════════════════╗"
+          Write-Host "║  Windows CLI Test Summary                    ║"
+          Write-Host "╠══════════════════════════════════════════════╣"
+          Write-Host "║  Platform:   Windows x64 (GitHub Actions)    ║"
+          Write-Host "║  Compiler:   MSVC 2022                       ║"
+          Write-Host "║  Qt Version: ${{ env.QT_VERSION }}                       ║"
+          Write-Host "║                                              ║"
+          Write-Host "║  Tests executed:                             ║"
+          Write-Host "║    CPU:  AVX2, SSE, Linpack, Prime, Variable ║"
+          Write-Host "║    RAM:  March C-, Walking Ones, Bandwidth   ║"
+          Write-Host "║    Storage: Seq W, Seq R, Random Mixed       ║"
+          Write-Host "║    Benchmark: Cache, Memory                  ║"
+          Write-Host "║    Monitor: Sensor polling                   ║"
+          Write-Host "║    Report: JSON generation                   ║"
+          Write-Host "╚══════════════════════════════════════════════╝"

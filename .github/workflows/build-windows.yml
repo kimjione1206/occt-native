@@ -1,0 +1,76 @@
+# ============================================================================
+# OCCT Native Stress Test - Windows Portable Build Pipeline
+# ============================================================================
+# Triggers:
+#   - On version tag push (v*) -> builds and creates GitHub Release
+#   - On manual workflow_dispatch -> builds artifact only
+# ============================================================================
+
+name: Build Windows Portable
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+  QT_VERSION: '6.7.*'
+
+jobs:
+  build:
+    name: Windows x64 Portable Build
+    runs-on: windows-latest
+
+    steps:
+      # ── Checkout source ──────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Install Qt6 via aqtinstall ───────────────────────────────────────
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: 'qtcharts'
+          cache: true
+
+      # ── Configure CMake with MSVC ────────────────────────────────────────
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
+
+      # ── Build ────────────────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      # ── Package as portable ZIP ──────────────────────────────────────────
+      - name: Package Portable
+        shell: pwsh
+        run: scripts/package-portable.ps1 -BuildDir build -BuildType ${{ env.BUILD_TYPE }}
+
+      # ── Upload build artifact ────────────────────────────────────────────
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OCCT-StressTest-win64-portable
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 90
+
+      # ── Create GitHub Release on tag push ────────────────────────────────
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
