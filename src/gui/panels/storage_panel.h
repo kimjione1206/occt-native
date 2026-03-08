@@ -54,6 +54,11 @@ private:
     QLabel* iopsLabel_ = nullptr;
     QLabel* throughputLabel_ = nullptr;
     QLabel* latencyLabel_ = nullptr;
+    QLabel* blocksVerifiedLabel_ = nullptr;
+    QLabel* verifyErrorsLabel_ = nullptr;
+    QLabel* crcErrorsLabel_ = nullptr;
+    QLabel* patternErrorsLabel_ = nullptr;
+    QLabel* verifyMbsLabel_ = nullptr;
 
     bool isRunning_ = false;
     QTimer* monitorTimer_ = nullptr;

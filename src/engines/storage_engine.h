@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base_engine.h"
+#include "storage/verify_block.h"
 
 namespace occt {
 
@@ -17,7 +18,11 @@ enum class StorageMode {
     SEQ_READ,    // Sequential read
     RAND_WRITE,  // Random 4K write
     RAND_READ,   // Random 4K read
-    MIXED        // Mixed 70% read / 30% write
+    MIXED,       // Mixed 70% read / 30% write
+    VERIFY_SEQ,  // Sequential write all → sequential read+verify
+    VERIFY_RAND, // Random block write → random read+verify
+    FILL_VERIFY, // H2testw-style: fill entire file → verify all
+    BUTTERFLY    // Converging write from both ends → verify all
 };
 
 struct StorageMetrics {
@@ -29,6 +34,27 @@ struct StorageMetrics {
     double progress_pct = 0.0;  // 0 ~ 100
     int error_count = 0;
     std::string state;    // "preparing", "testing", "completed", "error"
+
+    // Verification metrics (appended for backward compatibility)
+    uint64_t blocks_written  = 0;
+    uint64_t blocks_verified = 0;
+    uint64_t verify_errors   = 0;
+    uint64_t crc_errors      = 0;
+    uint64_t pattern_errors  = 0;
+    double   verify_mbs      = 0.0;
+    std::vector<StorageError> error_log; // capped at 1000
+};
+
+struct StorageBenchmarkResult {
+    struct TestResult {
+        std::string test_name;   // e.g. "SEQ1M Q8T1 Read"
+        double throughput_mbs;   // MB/s
+        double iops;             // IOPS
+        double latency_us;       // Average latency in microseconds
+    };
+    std::vector<TestResult> results;
+    std::string device_path;
+    std::string timestamp;
 };
 
 class StorageEngine : public IEngine {
@@ -47,6 +73,11 @@ public:
     bool start(StorageMode mode, const std::string& path,
                uint64_t file_size_mb = 2048, int queue_depth = 4);
 
+    /// Run a CrystalDiskMark-style storage benchmark (synchronous).
+    /// Returns results for 8 standard tests (SEQ/RND, read/write).
+    StorageBenchmarkResult run_benchmark(const std::string& path,
+                                         int file_size_mb = 1024);
+
     /// Returns last error message if start failed.
     std::string last_error() const;
 
@@ -63,17 +94,32 @@ private:
     void run(StorageMode mode, const std::string& path,
              uint64_t file_size_bytes, int queue_depth);
 
-    void seq_write(int fd, uint8_t* buf, size_t buf_size,
+    void seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
                    uint64_t file_size, int queue_depth);
-    void seq_read(int fd, uint8_t* buf, size_t buf_size,
+    void seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
                   uint64_t file_size, int queue_depth);
-    void rand_write(int fd, uint8_t* buf, uint64_t file_size, int queue_depth);
-    void rand_read(int fd, uint8_t* buf, uint64_t file_size, int queue_depth);
-    void mixed_io(int fd, uint8_t* buf, uint64_t file_size, int queue_depth);
+    void rand_write(intptr_t fd, uint8_t* buf, uint64_t file_size, int queue_depth);
+    void rand_read(intptr_t fd, uint8_t* buf, uint64_t file_size, int queue_depth);
+    void mixed_io(intptr_t fd, uint8_t* buf, uint64_t file_size, int queue_depth);
+
+    // Verification modes
+    void verify_seq(const std::string& path, uint64_t file_size, int queue_depth);
+    void verify_rand(const std::string& path, uint64_t file_size, int queue_depth);
+    void fill_verify(const std::string& path, uint64_t file_size, int queue_depth);
+    void butterfly_verify(const std::string& path, uint64_t file_size, int queue_depth);
+
+    void report_storage_error(const StorageError& err);
+
+    // Benchmark helper: run a single timed I/O test
+    StorageBenchmarkResult::TestResult run_bench_test(
+        const std::string& test_name, const std::string& file_path,
+        bool is_sequential, bool is_read, size_t block_size,
+        int queue_depth, int thread_count, uint64_t file_size_bytes,
+        double duration_secs);
 
     // Platform-specific helpers
-    int open_direct(const std::string& path, bool read_only);
-    void close_file(int fd);
+    intptr_t open_direct(const std::string& path, bool read_only);
+    void close_file(intptr_t fd);
     uint8_t* alloc_aligned(size_t size);
     void free_aligned(uint8_t* ptr);
 

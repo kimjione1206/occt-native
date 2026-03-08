@@ -208,7 +208,8 @@ void RamEngine::run(RamPattern pattern, size_t total_bytes, int passes) {
         metrics_.pages_locked = locked_pages_;
     }
 
-    auto start_time = std::chrono::steady_clock::now();
+    test_start_time_ = std::chrono::steady_clock::now();
+    auto start_time = test_start_time_;
 
     for (int pass = 0; pass < passes && !stop_requested_.load(); ++pass) {
         // Update progress based on pass
@@ -529,21 +530,41 @@ void RamEngine::bandwidth_test(uint8_t* buf, size_t size) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 void RamEngine::report_error(uint64_t address, uint64_t expected, uint64_t actual) {
-    (void)address; (void)expected; (void)actual;
+    auto now = std::chrono::steady_clock::now();
+    double timestamp = std::chrono::duration<double>(now - test_start_time_).count();
+
     std::lock_guard<std::mutex> lk(metrics_mutex_);
     metrics_.errors_found++;
+
+    if (metrics_.error_log.size() < 1000) {
+        metrics_.error_log.push_back({address, expected, actual, timestamp});
+    }
+
+    std::cerr << "[RAM] Error at offset 0x" << std::hex << address
+              << ": expected 0x" << expected
+              << ", actual 0x" << actual
+              << std::dec << " (t=" << timestamp << "s)" << std::endl;
+
+    if (stop_on_error()) {
+        stop_requested_.store(true);
+    }
 }
 
 void RamEngine::update_progress(double pct) {
+    RamMetrics snapshot;
     {
         std::lock_guard<std::mutex> lk(metrics_mutex_);
         metrics_.progress_pct = pct;
+        snapshot = metrics_;
     }
 
-    std::lock_guard<std::mutex> lk(cb_mutex_);
-    if (metrics_cb_) {
-        std::lock_guard<std::mutex> mlk(metrics_mutex_);
-        metrics_cb_(metrics_);
+    MetricsCallback cb_copy;
+    {
+        std::lock_guard<std::mutex> lk(cb_mutex_);
+        cb_copy = metrics_cb_;
+    }
+    if (cb_copy) {
+        cb_copy(snapshot);
     }
 }
 

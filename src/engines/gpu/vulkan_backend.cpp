@@ -109,7 +109,10 @@ std::vector<VulkanDeviceInfo> VulkanContext::enumerate_devices() const {
         info.name = props.deviceName;
         info.vendor = vendor_name_from_id(props.vendorID);
         info.driver_version = vk_version_string(props.driverVersion);
-        info.physical_device = pd;
+        // Do NOT store pd from a temporary instance -- the handle becomes
+        // dangling after vkDestroyInstance. Set to VK_NULL_HANDLE; a valid
+        // handle will be obtained when init() creates the real instance.
+        info.physical_device = owns_instance ? VK_NULL_HANDLE : pd;
 
         // Sum device-local memory heaps for VRAM
         for (uint32_t i = 0; i < mem_props.memoryHeapCount; ++i) {
@@ -140,6 +143,7 @@ std::vector<VulkanDeviceInfo> VulkanContext::enumerate_devices() const {
         result.push_back(std::move(info));
     }
 
+    // Destroy temp instance AFTER all device info has been fully copied
     if (owns_instance) vkDestroyInstance(tmp_instance, nullptr);
 
     // Cache for later use
@@ -148,6 +152,23 @@ std::vector<VulkanDeviceInfo> VulkanContext::enumerate_devices() const {
 }
 
 bool VulkanContext::init(int device_index) {
+    // Guard against re-initialization: clean up existing resources first
+    if (command_pool_ != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(device_, command_pool_, nullptr);
+        command_pool_ = VK_NULL_HANDLE;
+    }
+    if (device_ != VK_NULL_HANDLE) {
+        vkDestroyDevice(device_, nullptr);
+        device_ = VK_NULL_HANDLE;
+    }
+    if (instance_ != VK_NULL_HANDLE) {
+        vkDestroyInstance(instance_, nullptr);
+        instance_ = VK_NULL_HANDLE;
+    }
+    physical_device_ = VK_NULL_HANDLE;
+    graphics_queue_ = VK_NULL_HANDLE;
+    graphics_queue_family_ = UINT32_MAX;
+
     // Create instance
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;

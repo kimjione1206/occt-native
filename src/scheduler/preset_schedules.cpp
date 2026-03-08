@@ -62,7 +62,7 @@ QVector<TestStep> preset_cert_gold()
         { "cpu", {{"mode", "linpack"}}, 7200, false },
         { "gpu", {{"mode", "vram"}}, 3600, false },
         { "ram", {{"mode", "random"}, {"memory_pct", 0.80}}, 7200, false },
-        { "storage", {{"mode", "mixed"}}, 3600, false }
+        { "storage", {{"mode", "fill_verify"}}, 3600, false }
     };
 }
 
@@ -71,7 +71,8 @@ QVector<TestStep> preset_cert_platinum()
     return {
         { "cpu", {{"mode", "avx2"}}, 18000, false },
         { "ram", {{"mode", "march"}, {"memory_pct", 0.85}}, 18000, false },
-        { "gpu", {{"mode", "mixed"}}, 7200, false }
+        { "gpu", {{"mode", "mixed"}}, 7200, false },
+        { "storage", {{"mode", "verify_seq"}}, 7200, false }
     };
 }
 

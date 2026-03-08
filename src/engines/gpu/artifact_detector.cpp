@@ -23,7 +23,7 @@ ArtifactResult ArtifactDetector::compare_frame(const uint8_t* pixels,
                                                 int tolerance) {
     ArtifactResult result;
     result.total_pixels = static_cast<uint64_t>(width) * height;
-    total_frames_++;
+    total_frames_.fetch_add(1, std::memory_order_relaxed);
 
     if (reference_.empty() || width != ref_width_ || height != ref_height_) {
         result.description = "No reference frame or dimension mismatch";
@@ -62,7 +62,7 @@ ArtifactResult ArtifactDetector::compare_frame(const uint8_t* pixels,
         result.primary_type = ArtifactType::NONE;
         result.description = "No artifacts detected";
     } else {
-        total_artifacts_ += result.error_pixels;
+        total_artifacts_.fetch_add(result.error_pixels, std::memory_order_relaxed);
 
         if (result.error_rate < 0.0001) {
             result.severity = ArtifactSeverity::LOW;
@@ -75,7 +75,7 @@ ArtifactResult ArtifactDetector::compare_frame(const uint8_t* pixels,
         }
 
         // Classify artifact types and find locations
-        classify_artifacts(result, width, height, error_map);
+        classify_artifacts(result, width, height, error_map, pixels);
 
         // Build description
         std::ostringstream oss;
@@ -95,13 +95,14 @@ ArtifactResult ArtifactDetector::compare_frame(const std::vector<uint8_t>& pixel
 }
 
 void ArtifactDetector::reset_statistics() {
-    total_artifacts_ = 0;
-    total_frames_ = 0;
+    total_artifacts_.store(0, std::memory_order_relaxed);
+    total_frames_.store(0, std::memory_order_relaxed);
 }
 
 void ArtifactDetector::classify_artifacts(ArtifactResult& result,
                                            uint32_t width, uint32_t height,
-                                           const std::vector<bool>& error_map) {
+                                           const std::vector<bool>& error_map,
+                                           const uint8_t* pixels) {
     // Check for full-frame corruption (>50% error pixels)
     if (result.error_rate > 0.5) {
         result.primary_type = ArtifactType::FULL_FRAME;
@@ -146,7 +147,7 @@ void ArtifactDetector::classify_artifacts(ArtifactResult& result,
                 size_t pix_offset = (static_cast<size_t>(cy) * width + cx) * 4;
                 for (int c = 0; c < 4; ++c) {
                     float err = std::abs(
-                        static_cast<float>(reference_[pix_offset + c]) -
+                        static_cast<float>(pixels[pix_offset + c]) -
                         static_cast<float>(reference_[pix_offset + c]));
                     max_error = std::max(max_error, err);
                 }

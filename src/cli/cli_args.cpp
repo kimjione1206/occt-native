@@ -1,10 +1,52 @@
 #include "cli_args.h"
 
 #include <QTextStream>
+#include <cerrno>
+#include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace occt {
+
+// Safe integer parsing with error detection and range checking.
+// Returns true on success, prints error and returns false on failure.
+static bool parse_int(const char* opt_name, const char* str, int& out, int min_val, int max_val)
+{
+    char* end = nullptr;
+    errno = 0;
+    long val = std::strtol(str, &end, 10);
+    if (end == str || *end != '\0' || errno == ERANGE) {
+        std::fprintf(stderr, "Error: invalid integer value '%s' for %s\n", str, opt_name);
+        return false;
+    }
+    if (val < min_val || val > max_val) {
+        std::fprintf(stderr, "Error: %s value %ld out of range [%d, %d]\n",
+                     opt_name, val, min_val, max_val);
+        return false;
+    }
+    out = static_cast<int>(val);
+    return true;
+}
+
+// Safe float parsing with error detection and range checking.
+static bool parse_float(const char* opt_name, const char* str, float& out, float min_val, float max_val)
+{
+    char* end = nullptr;
+    errno = 0;
+    double val = std::strtod(str, &end);
+    if (end == str || *end != '\0' || errno == ERANGE) {
+        std::fprintf(stderr, "Error: invalid numeric value '%s' for %s\n", str, opt_name);
+        return false;
+    }
+    if (val < static_cast<double>(min_val) || val > static_cast<double>(max_val)) {
+        std::fprintf(stderr, "Error: %s value %g out of range [%g, %g]\n",
+                     opt_name, val, static_cast<double>(min_val), static_cast<double>(max_val));
+        return false;
+    }
+    out = static_cast<float>(val);
+    return true;
+}
 
 CliOptions parse_args(int argc, char** argv)
 {
@@ -24,10 +66,10 @@ CliOptions parse_args(int argc, char** argv)
             if (std::strcmp(argv[i], "auto") == 0) {
                 opts.threads = 0;
             } else {
-                opts.threads = std::atoi(argv[i]);
+                parse_int("--threads", argv[i], opts.threads, 0, 4096);
             }
         } else if (std::strcmp(arg, "--duration") == 0 && i + 1 < argc) {
-            opts.duration = std::atoi(argv[++i]);
+            parse_int("--duration", argv[++i], opts.duration, 0, 604800);
         } else if (std::strcmp(arg, "--schedule") == 0 && i + 1 < argc) {
             opts.schedule_file = QString::fromUtf8(argv[++i]);
             opts.test = "schedule";
@@ -38,26 +80,30 @@ CliOptions parse_args(int argc, char** argv)
         } else if (std::strcmp(arg, "--monitor-only") == 0) {
             opts.monitor_only = true;
         } else if (std::strcmp(arg, "--memory") == 0 && i + 1 < argc) {
-            opts.memory_percent = std::atoi(argv[++i]);
+            parse_int("--memory", argv[++i], opts.memory_percent, 1, 100);
         } else if (std::strcmp(arg, "--csv") == 0 && i + 1 < argc) {
             opts.report_format = "csv";
             opts.output_path = QString::fromUtf8(argv[++i]);
         } else if (std::strcmp(arg, "--load-pattern") == 0 && i + 1 < argc) {
             opts.load_pattern = QString::fromUtf8(argv[++i]);
         } else if (std::strcmp(arg, "--passes") == 0 && i + 1 < argc) {
-            opts.passes = std::atoi(argv[++i]);
+            parse_int("--passes", argv[++i], opts.passes, 1, 100000);
         } else if (std::strcmp(arg, "--file-size") == 0 && i + 1 < argc) {
-            opts.file_size_mb = std::atoi(argv[++i]);
+            parse_int("--file-size", argv[++i], opts.file_size_mb, 1, 1048576);
         } else if (std::strcmp(arg, "--queue-depth") == 0 && i + 1 < argc) {
-            opts.queue_depth = std::atoi(argv[++i]);
+            parse_int("--queue-depth", argv[++i], opts.queue_depth, 1, 256);
         } else if (std::strcmp(arg, "--storage-path") == 0 && i + 1 < argc) {
             opts.storage_path = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--benchmark-path") == 0 && i + 1 < argc) {
+            opts.benchmark_path = QString::fromUtf8(argv[++i]);
         } else if (std::strcmp(arg, "--gpu-index") == 0 && i + 1 < argc) {
-            opts.gpu_index = std::atoi(argv[++i]);
+            parse_int("--gpu-index", argv[++i], opts.gpu_index, -1, 64);
         } else if (std::strcmp(arg, "--shader-complexity") == 0 && i + 1 < argc) {
-            opts.shader_complexity = std::atoi(argv[++i]);
+            parse_int("--shader-complexity", argv[++i], opts.shader_complexity, 1, 5);
         } else if (std::strcmp(arg, "--adaptive-mode") == 0 && i + 1 < argc) {
             opts.adaptive_mode = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--coil-freq") == 0 && i + 1 < argc) {
+            parse_float("--coil-freq", argv[++i], opts.coil_freq, 0.0f, 15000.0f);
         } else if (std::strcmp(arg, "--use-all-gpus") == 0) {
             opts.use_all_gpus = true;
         } else if (std::strcmp(arg, "--stop-on-error") == 0) {
@@ -65,6 +111,21 @@ CliOptions parse_args(int argc, char** argv)
         } else if (std::strcmp(arg, "--cert-tier") == 0 && i + 1 < argc) {
             opts.cert_tier = QString::fromUtf8(argv[++i]);
             opts.test = "certificate";
+        } else if (std::strcmp(arg, "--whea") == 0) {
+            opts.whea = true;
+        } else if (std::strcmp(arg, "--engines") == 0 && i + 1 < argc) {
+            opts.engines = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--compare") == 0 && i + 2 < argc) {
+            opts.compare_a = QString::fromUtf8(argv[++i]);
+            opts.compare_b = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--upload") == 0 && i + 1 < argc) {
+            opts.upload_cert = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--verify") == 0 && i + 1 < argc) {
+            opts.verify_hash = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--list-certs") == 0) {
+            opts.list_certs = true;
+        } else if (std::strcmp(arg, "--leaderboard") == 0 && i + 1 < argc) {
+            opts.leaderboard_cmd = QString::fromUtf8(argv[++i]);
         } else if (std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0) {
             opts.show_help = true;
         } else if (std::strcmp(arg, "--version") == 0 || std::strcmp(arg, "-v") == 0) {
@@ -119,7 +180,8 @@ void print_usage()
         "GPU options:\n"
         "  --gpu-index <N>        GPU index (default: auto)\n"
         "  --shader-complexity <N> Vulkan shader complexity 1-5 (default: 1)\n"
-        "  --adaptive-mode <m>    Adaptive mode: variable (default), switch\n"
+        "  --adaptive-mode <m>    Adaptive mode: variable (default), switch, coil_whine\n"
+        "  --coil-freq <Hz>       Coil whine frequency 10-15000 Hz (default: 100, 0 = sweep)\n"
         "  Modes: matrix_mul, fp64/matrix_fp64, fma, trig, vram, mixed, vulkan_3d, vulkan_adaptive\n"
         "\n"
         "PSU options:\n"
@@ -127,7 +189,8 @@ void print_usage()
         "  Modes: steady (default), spike, ramp\n"
         "\n"
         "Benchmark options:\n"
-        "  Modes: cache, memory, all (default)\n"
+        "  --benchmark-path <path> Storage benchmark target path (default: current dir)\n"
+        "  Modes: cache, memory, storage, all (default: cache+memory)\n"
         "\n"
         "Schedule options:\n"
         "  --schedule <file>      Run a JSON schedule file\n"
@@ -135,6 +198,25 @@ void print_usage()
         "\n"
         "Certificate options:\n"
         "  --cert-tier <tier>     Run certification: bronze, silver, gold, platinum\n"
+        "\n"
+        "Combined test options:\n"
+        "  --test combined        Run multiple engines simultaneously\n"
+        "  --engines <list>       Comma-separated engines: cpu,gpu,ram,storage\n"
+        "\n"
+        "Monitoring options:\n"
+        "  --whea                 Enable WHEA hardware error monitoring (Windows only)\n"
+        "\n"
+        "Report comparison (P4-3):\n"
+        "  --compare <a> <b>      Compare two JSON report files\n"
+        "\n"
+        "Certificate store (P4-4):\n"
+        "  --upload <cert.json>   Upload certificate to local store\n"
+        "  --verify <hash>        Verify certificate by SHA-256 hash\n"
+        "  --list-certs           List all stored certificates\n"
+        "\n"
+        "Leaderboard (P4-5):\n"
+        "  --leaderboard show     Display current benchmark rankings\n"
+        "  --leaderboard submit   Submit current benchmark result\n"
         "\n"
         "Exit codes:\n"
         "  0 = PASS (all tests passed)\n"
@@ -149,9 +231,12 @@ void print_usage()
         "  occt_native --cli --test gpu --mode vulkan_3d --gpu-index 0 --shader-complexity 3\n"
         "  occt_native --cli --test psu --mode spike --use-all-gpus --duration 600\n"
         "  occt_native --cli --test benchmark --mode all\n"
+        "  occt_native --cli --test benchmark --mode storage --benchmark-path /tmp --file-size 1024\n"
         "  occt_native --cli --schedule schedule.json --stop-on-error --report html --output ./results/\n"
         "  occt_native --cli --cert-tier gold --output ./cert/\n"
         "  occt_native --cli --monitor-only --csv sensors.csv --duration 60\n"
+        "  occt_native --cli --test combined --engines cpu,gpu --duration 60 --stop-on-error\n"
+        "  occt_native --cli --test cpu --whea --duration 300\n"
     );
 }
 

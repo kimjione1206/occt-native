@@ -34,6 +34,8 @@ add_library(occt_engines STATIC
     # Storage 엔진
     storage_engine.cpp
     storage_engine.h
+    storage/verify_block.h
+    storage/storage_verify.cpp
 
     # PSU 엔진
     psu_engine.cpp

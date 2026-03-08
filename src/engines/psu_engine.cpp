@@ -208,14 +208,24 @@ void PsuEngine::metrics_poller_func() {
             current_metrics_.gpu_power_watts = gpu_m.power_watts;
             current_metrics_.total_power_watts = cpu_m.power_watts + gpu_m.power_watts;
             // Error counting is cumulative
+            current_metrics_.errors_cpu = cpu_m.error_count;
+            current_metrics_.errors_gpu = static_cast<int>(gpu_m.vram_errors);
         }
 
-        // Invoke callback
+        if (stop_on_error() && (cpu_m.error_count > 0 || gpu_m.vram_errors > 0)) {
+            stop_requested_.store(true);
+        }
+
+        // Invoke callback: copy metrics under lock, release, then call callback
+        PsuMetrics metrics_snapshot;
+        {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_snapshot = current_metrics_;
+        }
         {
             std::lock_guard<std::mutex> lk(cb_mutex_);
             if (metrics_cb_) {
-                std::lock_guard<std::mutex> mlk(metrics_mutex_);
-                metrics_cb_(current_metrics_);
+                metrics_cb_(metrics_snapshot);
             }
         }
 

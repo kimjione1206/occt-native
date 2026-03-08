@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <random>
 
@@ -23,8 +24,9 @@
 
 namespace occt {
 
-static constexpr size_t BLOCK_SIZE_4K  = 4096;
-static constexpr size_t BLOCK_SIZE_1M  = 1024 * 1024;
+static constexpr size_t BLOCK_SIZE_4K   = 4096;
+static constexpr size_t BLOCK_SIZE_128K = 128 * 1024;
+static constexpr size_t BLOCK_SIZE_1M   = 1024 * 1024;
 
 // ─── xoshiro256** (same fast PRNG for offset generation) ─────────────────────
 
@@ -130,7 +132,7 @@ void StorageEngine::set_metrics_callback(MetricsCallback cb) {
 
 // ─── Platform-specific helpers ───────────────────────────────────────────────
 
-int StorageEngine::open_direct(const std::string& path, bool read_only) {
+intptr_t StorageEngine::open_direct(const std::string& path, bool read_only) {
 #if defined(_WIN32)
     DWORD access = read_only ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE);
     DWORD creation = read_only ? OPEN_EXISTING : CREATE_ALWAYS;
@@ -162,7 +164,7 @@ int StorageEngine::open_direct(const std::string& path, bool read_only) {
     } else {
         std::cerr << "[Storage] Active mode: direct I/O (unbuffered)" << std::endl;
     }
-    return static_cast<int>(reinterpret_cast<intptr_t>(h));
+    return reinterpret_cast<intptr_t>(h);
 #else
     int flags_val = read_only ? O_RDONLY : (O_RDWR | O_CREAT | O_TRUNC);
 #if defined(__linux__)
@@ -195,16 +197,16 @@ int StorageEngine::open_direct(const std::string& path, bool read_only) {
         std::cerr << "[Storage] Active mode: buffered I/O (F_NOCACHE failed)" << std::endl;
     }
 #endif
-    return fd;
+    return static_cast<intptr_t>(fd);
 #endif
 }
 
-void StorageEngine::close_file(int fd) {
+void StorageEngine::close_file(intptr_t fd) {
     if (fd < 0) return;
 #if defined(_WIN32)
-    CloseHandle(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)));
+    CloseHandle(reinterpret_cast<HANDLE>(fd));
 #else
-    close(fd);
+    close(static_cast<int>(fd));
 #endif
 }
 
@@ -248,19 +250,27 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
     // Fill buffer with pattern
     std::memset(io_buf, 0xA5, buf_size);
 
+    bool is_verify_mode = (mode == StorageMode::VERIFY_SEQ ||
+                           mode == StorageMode::VERIFY_RAND ||
+                           mode == StorageMode::FILL_VERIFY ||
+                           mode == StorageMode::BUTTERFLY);
+
     bool needs_existing_file = (mode == StorageMode::SEQ_READ ||
                                 mode == StorageMode::RAND_READ ||
                                 mode == StorageMode::MIXED);
 
     // For read modes, create the file first
     if (needs_existing_file) {
-        int wfd = open_direct(test_file_path_, false);
+        intptr_t wfd = open_direct(test_file_path_, false);
         if (wfd < 0) {
             {
                 std::lock_guard<std::mutex> lk(metrics_mutex_);
                 metrics_.state = "error";
             }
-            last_error_ = "Failed to create test file at: " + test_file_path_;
+            {
+                std::lock_guard<std::mutex> elk(metrics_mutex_);
+                last_error_ = "Failed to create test file at: " + test_file_path_;
+            }
             free_aligned(io_buf);
             running_.store(false);
             return;
@@ -272,12 +282,12 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
                                        file_size_bytes - written);
 #if defined(_WIN32)
             DWORD bytes_written = 0;
-            BOOL ok = WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(wfd)),
+            BOOL ok = WriteFile(reinterpret_cast<HANDLE>(wfd),
                       io_buf, static_cast<DWORD>(to_write), &bytes_written, nullptr);
             if (!ok || bytes_written == 0) break;
             written += bytes_written;
 #else
-            ssize_t ret = write(wfd, io_buf, to_write);
+            ssize_t ret = write(static_cast<int>(wfd), io_buf, to_write);
             if (ret <= 0) break;
             written += static_cast<uint64_t>(ret);
 #endif
@@ -291,41 +301,70 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
         close_file(wfd);
     }
 
-    // Open file for the actual test
-    bool ro = (mode == StorageMode::SEQ_READ || mode == StorageMode::RAND_READ);
-    int fd = open_direct(test_file_path_, ro);
-    if (fd < 0) {
+    // Verify modes manage their own file I/O
+    if (is_verify_mode) {
         free_aligned(io_buf);
-        running_.store(false);
-        return;
-    }
+        {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_.state = "testing";
+            metrics_.progress_pct = 0.0;
+        }
 
-    {
-        std::lock_guard<std::mutex> lk(metrics_mutex_);
-        metrics_.state = "testing";
-        metrics_.progress_pct = 0.0;
-    }
+        switch (mode) {
+            case StorageMode::VERIFY_SEQ:
+                verify_seq(test_file_path_, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::VERIFY_RAND:
+                verify_rand(test_file_path_, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::FILL_VERIFY:
+                fill_verify(test_file_path_, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::BUTTERFLY:
+                butterfly_verify(test_file_path_, file_size_bytes, queue_depth);
+                break;
+            default:
+                break;
+        }
+    } else {
+        // Open file for the actual test
+        bool ro = (mode == StorageMode::SEQ_READ || mode == StorageMode::RAND_READ);
+        intptr_t fd = open_direct(test_file_path_, ro);
+        if (fd < 0) {
+            free_aligned(io_buf);
+            running_.store(false);
+            return;
+        }
 
-    switch (mode) {
-        case StorageMode::SEQ_WRITE:
-            seq_write(fd, io_buf, buf_size, file_size_bytes, queue_depth);
-            break;
-        case StorageMode::SEQ_READ:
-            seq_read(fd, io_buf, buf_size, file_size_bytes, queue_depth);
-            break;
-        case StorageMode::RAND_WRITE:
-            rand_write(fd, io_buf, file_size_bytes, queue_depth);
-            break;
-        case StorageMode::RAND_READ:
-            rand_read(fd, io_buf, file_size_bytes, queue_depth);
-            break;
-        case StorageMode::MIXED:
-            mixed_io(fd, io_buf, file_size_bytes, queue_depth);
-            break;
-    }
+        {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_.state = "testing";
+            metrics_.progress_pct = 0.0;
+        }
 
-    close_file(fd);
-    free_aligned(io_buf);
+        switch (mode) {
+            case StorageMode::SEQ_WRITE:
+                seq_write(fd, io_buf, buf_size, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::SEQ_READ:
+                seq_read(fd, io_buf, buf_size, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::RAND_WRITE:
+                rand_write(fd, io_buf, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::RAND_READ:
+                rand_read(fd, io_buf, file_size_bytes, queue_depth);
+                break;
+            case StorageMode::MIXED:
+                mixed_io(fd, io_buf, file_size_bytes, queue_depth);
+                break;
+            default:
+                break;
+        }
+
+        close_file(fd);
+        free_aligned(io_buf);
+    }
 
     {
         std::lock_guard<std::mutex> lk(metrics_mutex_);
@@ -337,7 +376,7 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
 
 // ─── Sequential Write ────────────────────────────────────────────────────────
 
-void StorageEngine::seq_write(int fd, uint8_t* buf, size_t buf_size,
+void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
                               uint64_t file_size, int /*queue_depth*/) {
     auto start = std::chrono::steady_clock::now();
     uint64_t total_written = 0;
@@ -348,17 +387,27 @@ void StorageEngine::seq_write(int fd, uint8_t* buf, size_t buf_size,
 
 #if defined(_WIN32)
         DWORD bytes_written = 0;
-        BOOL ok = WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+        BOOL ok = WriteFile(reinterpret_cast<HANDLE>(fd),
                   buf, static_cast<DWORD>(to_write), &bytes_written, nullptr);
         if (!ok || bytes_written == 0) {
             std::lock_guard<std::mutex> lk(metrics_mutex_);
             metrics_.error_count++;
+            if (stop_on_error()) {
+                stop_requested_.store(true);
+            }
             break;
         }
         total_written += bytes_written;
 #else
-        ssize_t ret = write(fd, buf, to_write);
-        if (ret <= 0) break;
+        ssize_t ret = write(static_cast<int>(fd), buf, to_write);
+        if (ret <= 0) {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_.error_count++;
+            if (stop_on_error()) {
+                stop_requested_.store(true);
+            }
+            break;
+        }
         total_written += static_cast<uint64_t>(ret);
 #endif
 
@@ -391,7 +440,7 @@ void StorageEngine::seq_write(int fd, uint8_t* buf, size_t buf_size,
 
 // ─── Sequential Read ─────────────────────────────────────────────────────────
 
-void StorageEngine::seq_read(int fd, uint8_t* buf, size_t buf_size,
+void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
                              uint64_t file_size, int /*queue_depth*/) {
     auto start = std::chrono::steady_clock::now();
     uint64_t total_read = 0;
@@ -402,17 +451,27 @@ void StorageEngine::seq_read(int fd, uint8_t* buf, size_t buf_size,
 
 #if defined(_WIN32)
         DWORD bytes_read = 0;
-        BOOL ok = ReadFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+        BOOL ok = ReadFile(reinterpret_cast<HANDLE>(fd),
                  buf, static_cast<DWORD>(to_read), &bytes_read, nullptr);
         if (!ok || bytes_read == 0) {
             std::lock_guard<std::mutex> lk(metrics_mutex_);
             metrics_.error_count++;
+            if (stop_on_error()) {
+                stop_requested_.store(true);
+            }
             break;
         }
         total_read += bytes_read;
 #else
-        ssize_t ret = read(fd, buf, to_read);
-        if (ret <= 0) break;
+        ssize_t ret = read(static_cast<int>(fd), buf, to_read);
+        if (ret <= 0) {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_.error_count++;
+            if (stop_on_error()) {
+                stop_requested_.store(true);
+            }
+            break;
+        }
         total_read += static_cast<uint64_t>(ret);
 #endif
 
@@ -445,14 +504,12 @@ void StorageEngine::seq_read(int fd, uint8_t* buf, size_t buf_size,
 
 // ─── Random 4K Write ─────────────────────────────────────────────────────────
 
-void StorageEngine::rand_write(int fd, uint8_t* buf, uint64_t file_size,
+void StorageEngine::rand_write(intptr_t fd, uint8_t* buf, uint64_t file_size,
                                int queue_depth) {
+    (void)buf; // shared buffer not used; per-thread buffers allocated below
     auto start = std::chrono::steady_clock::now();
     const uint64_t max_blocks = file_size / BLOCK_SIZE_4K;
     if (max_blocks == 0) return;
-
-    FastRng rng;
-    rng.seed(std::chrono::steady_clock::now().time_since_epoch().count());
 
     uint64_t ops = 0;
     const uint64_t target_ops = max_blocks; // one pass over all blocks
@@ -461,6 +518,11 @@ void StorageEngine::rand_write(int fd, uint8_t* buf, uint64_t file_size,
     std::atomic<uint64_t> shared_ops{0};
 
     auto worker_fn = [&](int /*id*/) {
+        // H9: allocate per-thread aligned 4K buffer to avoid data race
+        uint8_t* local_buf = alloc_aligned(BLOCK_SIZE_4K);
+        if (!local_buf) return;
+        std::memset(local_buf, 0xA5, BLOCK_SIZE_4K);
+
         FastRng local_rng;
         local_rng.seed(std::chrono::steady_clock::now().time_since_epoch().count()
                        + std::hash<std::thread::id>{}(std::this_thread::get_id()));
@@ -477,12 +539,28 @@ void StorageEngine::rand_write(int fd, uint8_t* buf, uint64_t file_size,
             ov.Offset = static_cast<DWORD>(offset & 0xFFFFFFFF);
             ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
             DWORD written = 0;
-            WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
-                      buf, BLOCK_SIZE_4K, &written, &ov);
+            BOOL ok = WriteFile(reinterpret_cast<HANDLE>(fd),
+                      local_buf, BLOCK_SIZE_4K, &written, &ov);
+            if (!ok || written == 0) {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                metrics_.error_count++;
+                if (stop_on_error()) {
+                    stop_requested_.store(true);
+                }
+            }
 #else
-            pwrite(fd, buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+            ssize_t ret = pwrite(static_cast<int>(fd), local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+            if (ret <= 0) {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                metrics_.error_count++;
+                if (stop_on_error()) {
+                    stop_requested_.store(true);
+                }
+            }
 #endif
         }
+
+        free_aligned(local_buf);
     };
 
     for (int i = 0; i < queue_depth; ++i) {
@@ -543,7 +621,7 @@ void StorageEngine::rand_write(int fd, uint8_t* buf, uint64_t file_size,
 
 // ─── Random 4K Read ──────────────────────────────────────────────────────────
 
-void StorageEngine::rand_read(int fd, uint8_t* buf, uint64_t file_size,
+void StorageEngine::rand_read(intptr_t fd, uint8_t* buf, uint64_t file_size,
                               int queue_depth) {
     auto start = std::chrono::steady_clock::now();
     const uint64_t max_blocks = file_size / BLOCK_SIZE_4K;
@@ -574,10 +652,24 @@ void StorageEngine::rand_read(int fd, uint8_t* buf, uint64_t file_size,
             ov.Offset = static_cast<DWORD>(offset & 0xFFFFFFFF);
             ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
             DWORD bytes_read = 0;
-            ReadFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+            BOOL ok = ReadFile(reinterpret_cast<HANDLE>(fd),
                      local_buf, BLOCK_SIZE_4K, &bytes_read, &ov);
+            if (!ok || bytes_read == 0) {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                metrics_.error_count++;
+                if (stop_on_error()) {
+                    stop_requested_.store(true);
+                }
+            }
 #else
-            pread(fd, local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+            ssize_t ret = pread(static_cast<int>(fd), local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+            if (ret <= 0) {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                metrics_.error_count++;
+                if (stop_on_error()) {
+                    stop_requested_.store(true);
+                }
+            }
 #endif
         }
 
@@ -640,7 +732,7 @@ void StorageEngine::rand_read(int fd, uint8_t* buf, uint64_t file_size,
 
 // ─── Mixed I/O (70% read / 30% write) ───────────────────────────────────────
 
-void StorageEngine::mixed_io(int fd, uint8_t* buf, uint64_t file_size,
+void StorageEngine::mixed_io(intptr_t fd, uint8_t* buf, uint64_t file_size,
                              int queue_depth) {
     auto start = std::chrono::steady_clock::now();
     const uint64_t max_blocks = file_size / BLOCK_SIZE_4K;
@@ -675,20 +767,40 @@ void StorageEngine::mixed_io(int fd, uint8_t* buf, uint64_t file_size,
             ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
             DWORD bytes = 0;
             if (do_read) {
-                ReadFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+                BOOL ok = ReadFile(reinterpret_cast<HANDLE>(fd),
                          local_buf, BLOCK_SIZE_4K, &bytes, &ov);
+                if (!ok || bytes == 0) {
+                    std::lock_guard<std::mutex> lk(metrics_mutex_);
+                    metrics_.error_count++;
+                    if (stop_on_error()) stop_requested_.store(true);
+                }
                 total_reads.fetch_add(1);
             } else {
-                WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+                BOOL ok = WriteFile(reinterpret_cast<HANDLE>(fd),
                           local_buf, BLOCK_SIZE_4K, &bytes, &ov);
+                if (!ok || bytes == 0) {
+                    std::lock_guard<std::mutex> lk(metrics_mutex_);
+                    metrics_.error_count++;
+                    if (stop_on_error()) stop_requested_.store(true);
+                }
                 total_writes.fetch_add(1);
             }
 #else
             if (do_read) {
-                pread(fd, local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+                ssize_t ret = pread(static_cast<int>(fd), local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+                if (ret <= 0) {
+                    std::lock_guard<std::mutex> lk(metrics_mutex_);
+                    metrics_.error_count++;
+                    if (stop_on_error()) stop_requested_.store(true);
+                }
                 total_reads.fetch_add(1);
             } else {
-                pwrite(fd, local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+                ssize_t ret = pwrite(static_cast<int>(fd), local_buf, BLOCK_SIZE_4K, static_cast<off_t>(offset));
+                if (ret <= 0) {
+                    std::lock_guard<std::mutex> lk(metrics_mutex_);
+                    metrics_.error_count++;
+                    if (stop_on_error()) stop_requested_.store(true);
+                }
                 total_writes.fetch_add(1);
             }
 #endif
@@ -756,7 +868,281 @@ void StorageEngine::mixed_io(int fd, uint8_t* buf, uint64_t file_size,
     }
 }
 
+// ─── CrystalDiskMark-style Benchmark ─────────────────────────────────────────
+
+StorageBenchmarkResult::TestResult StorageEngine::run_bench_test(
+    const std::string& test_name, const std::string& file_path,
+    bool is_sequential, bool is_read, size_t block_size,
+    int queue_depth, int thread_count, uint64_t file_size_bytes,
+    double duration_secs)
+{
+    StorageBenchmarkResult::TestResult result;
+    result.test_name = test_name;
+    result.throughput_mbs = 0;
+    result.iops = 0;
+    result.latency_us = 0;
+
+    // For write tests, open read-write; for read tests, open read-only
+    intptr_t fd = open_direct(file_path, is_read);
+    if (fd < 0) return result;
+
+    const uint64_t max_blocks = file_size_bytes / block_size;
+    if (max_blocks == 0) {
+        close_file(fd);
+        return result;
+    }
+
+    std::atomic<uint64_t> total_bytes{0};
+    std::atomic<uint64_t> total_ops{0};
+    std::atomic<bool> bench_done{false};
+
+    auto worker_fn = [&](int /*id*/) {
+        uint8_t* buf = alloc_aligned(block_size);
+        if (!buf) return;
+        std::memset(buf, 0xA5, block_size);
+
+        FastRng rng;
+        rng.seed(std::chrono::steady_clock::now().time_since_epoch().count()
+                 + std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
+        uint64_t seq_offset = 0;
+
+        while (!bench_done.load(std::memory_order_relaxed) && !stop_requested_.load(std::memory_order_relaxed)) {
+            uint64_t offset;
+            if (is_sequential) {
+                offset = seq_offset;
+                seq_offset += block_size;
+                if (seq_offset >= file_size_bytes) seq_offset = 0;
+            } else {
+                uint64_t block = rng.next() % max_blocks;
+                offset = block * block_size;
+            }
+
+#if defined(_WIN32)
+            OVERLAPPED ov{};
+            ov.Offset = static_cast<DWORD>(offset & 0xFFFFFFFF);
+            ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
+            DWORD bytes_done = 0;
+            if (is_read) {
+                ReadFile(reinterpret_cast<HANDLE>(fd),
+                         buf, static_cast<DWORD>(block_size), &bytes_done, &ov);
+            } else {
+                WriteFile(reinterpret_cast<HANDLE>(fd),
+                          buf, static_cast<DWORD>(block_size), &bytes_done, &ov);
+            }
+            if (bytes_done > 0) {
+                total_bytes.fetch_add(bytes_done, std::memory_order_relaxed);
+                total_ops.fetch_add(1, std::memory_order_relaxed);
+            }
+#else
+            ssize_t ret;
+            if (is_read) {
+                ret = pread(static_cast<int>(fd), buf, block_size, static_cast<off_t>(offset));
+            } else {
+                ret = pwrite(static_cast<int>(fd), buf, block_size, static_cast<off_t>(offset));
+            }
+            if (ret > 0) {
+                total_bytes.fetch_add(static_cast<uint64_t>(ret), std::memory_order_relaxed);
+                total_ops.fetch_add(1, std::memory_order_relaxed);
+            }
+#endif
+        }
+
+        free_aligned(buf);
+    };
+
+    // Spawn worker threads
+    std::vector<std::thread> workers;
+    int actual_threads = std::max(thread_count, 1);
+    for (int i = 0; i < actual_threads; ++i) {
+        workers.emplace_back(worker_fn, i);
+    }
+
+    // Run for the specified duration
+    auto start = std::chrono::steady_clock::now();
+    while (!stop_requested_.load(std::memory_order_relaxed)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        auto now = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(now - start).count();
+        if (elapsed >= duration_secs) break;
+    }
+    bench_done.store(true, std::memory_order_relaxed);
+
+    for (auto& t : workers) {
+        if (t.joinable()) t.join();
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(end - start).count();
+
+    uint64_t bytes = total_bytes.load();
+    uint64_t ops = total_ops.load();
+
+    result.throughput_mbs = elapsed > 0 ? (static_cast<double>(bytes) / (1024.0 * 1024.0)) / elapsed : 0;
+    result.iops = elapsed > 0 ? static_cast<double>(ops) / elapsed : 0;
+    result.latency_us = ops > 0 ? (elapsed * 1e6) / static_cast<double>(ops) : 0;
+
+    close_file(fd);
+    return result;
+}
+
+StorageBenchmarkResult StorageEngine::run_benchmark(const std::string& path,
+                                                     int file_size_mb) {
+    StorageBenchmarkResult bench;
+    bench.device_path = path;
+
+    // Generate timestamp
+    {
+        auto now = std::chrono::system_clock::now();
+        auto t = std::chrono::system_clock::to_time_t(now);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
+        bench.timestamp = buf;
+    }
+
+    // Build test file path
+    std::string dir = path;
+    if (dir.empty()) dir = ".";
+    if (dir.back() != '/' && dir.back() != '\\') dir += '/';
+    std::string test_file = dir + "occt_bench_test.bin";
+
+    uint64_t file_size_bytes = static_cast<uint64_t>(file_size_mb) * 1024ULL * 1024ULL;
+
+    // Create the test file (fill with data for reads)
+    {
+        intptr_t fd = open_direct(test_file, false);
+        if (fd < 0) {
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                last_error_ = "Failed to create benchmark test file at: " + test_file;
+            }
+            return bench;
+        }
+
+        uint8_t* buf = alloc_aligned(BLOCK_SIZE_1M);
+        if (!buf) {
+            close_file(fd);
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                last_error_ = "Failed to allocate I/O buffer";
+            }
+            return bench;
+        }
+        std::memset(buf, 0xA5, BLOCK_SIZE_1M);
+
+        uint64_t written = 0;
+        while (written < file_size_bytes) {
+            size_t to_write = std::min(static_cast<uint64_t>(BLOCK_SIZE_1M),
+                                       file_size_bytes - written);
+#if defined(_WIN32)
+            DWORD bytes_written = 0;
+            BOOL ok = WriteFile(reinterpret_cast<HANDLE>(fd),
+                      buf, static_cast<DWORD>(to_write), &bytes_written, nullptr);
+            if (!ok || bytes_written == 0) break;
+            written += bytes_written;
+#else
+            ssize_t ret = write(static_cast<int>(fd), buf, to_write);
+            if (ret <= 0) break;
+            written += static_cast<uint64_t>(ret);
+#endif
+        }
+
+        free_aligned(buf);
+        close_file(fd);
+
+        if (written < file_size_bytes) {
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                last_error_ = "Failed to write full benchmark file";
+            }
+#if defined(_WIN32)
+            DeleteFileA(test_file.c_str());
+#else
+            unlink(test_file.c_str());
+#endif
+            return bench;
+        }
+    }
+
+    static constexpr double TEST_DURATION = 5.0; // seconds per test
+
+    // CrystalDiskMark test sequence:
+    // 1. SEQ1M Q8T1 Read
+    bench.results.push_back(run_bench_test(
+        "SEQ1M Q8T1 Read", test_file,
+        /*sequential=*/true, /*is_read=*/true,
+        BLOCK_SIZE_1M, /*queue_depth=*/8, /*threads=*/1,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 2. SEQ1M Q8T1 Write
+    bench.results.push_back(run_bench_test(
+        "SEQ1M Q8T1 Write", test_file,
+        /*sequential=*/true, /*is_read=*/false,
+        BLOCK_SIZE_1M, /*queue_depth=*/8, /*threads=*/1,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 3. SEQ128K Q32T1 Read
+    bench.results.push_back(run_bench_test(
+        "SEQ128K Q32T1 Read", test_file,
+        /*sequential=*/true, /*is_read=*/true,
+        BLOCK_SIZE_128K, /*queue_depth=*/32, /*threads=*/1,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 4. SEQ128K Q32T1 Write
+    bench.results.push_back(run_bench_test(
+        "SEQ128K Q32T1 Write", test_file,
+        /*sequential=*/true, /*is_read=*/false,
+        BLOCK_SIZE_128K, /*queue_depth=*/32, /*threads=*/1,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 5. RND4K Q32T16 Read
+    bench.results.push_back(run_bench_test(
+        "RND4K Q32T16 Read", test_file,
+        /*sequential=*/false, /*is_read=*/true,
+        BLOCK_SIZE_4K, /*queue_depth=*/32, /*threads=*/16,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 6. RND4K Q32T16 Write
+    bench.results.push_back(run_bench_test(
+        "RND4K Q32T16 Write", test_file,
+        /*sequential=*/false, /*is_read=*/false,
+        BLOCK_SIZE_4K, /*queue_depth=*/32, /*threads=*/16,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 7. RND4K Q1T1 Read
+    bench.results.push_back(run_bench_test(
+        "RND4K Q1T1 Read", test_file,
+        /*sequential=*/false, /*is_read=*/true,
+        BLOCK_SIZE_4K, /*queue_depth=*/1, /*threads=*/1,
+        file_size_bytes, TEST_DURATION));
+    if (stop_requested_.load()) goto cleanup;
+
+    // 8. RND4K Q1T1 Write
+    bench.results.push_back(run_bench_test(
+        "RND4K Q1T1 Write", test_file,
+        /*sequential=*/false, /*is_read=*/false,
+        BLOCK_SIZE_4K, /*queue_depth=*/1, /*threads=*/1,
+        file_size_bytes, TEST_DURATION));
+
+cleanup:
+    // Cleanup test file
+#if defined(_WIN32)
+    DeleteFileA(test_file.c_str());
+#else
+    unlink(test_file.c_str());
+#endif
+
+    return bench;
+}
+
 std::string StorageEngine::last_error() const {
+    std::lock_guard<std::mutex> lk(metrics_mutex_);
     return last_error_;
 }
 

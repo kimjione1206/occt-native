@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <iostream>
+#include <sstream>
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
@@ -72,7 +74,7 @@ void CpuEngine::set_thread_affinity(int core_id) {
 }
 
 void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
-                       LoadPattern pattern) {
+                       LoadPattern pattern, CpuIntensityMode intensity) {
     if (running_.load()) {
         stop();
     }
@@ -80,6 +82,7 @@ void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
     mode_ = mode;
     duration_secs_ = duration_secs;
     load_pattern_ = pattern;
+    intensity_mode_ = intensity;
 
     // Auto-detect thread count
     if (num_threads <= 0) {
@@ -101,6 +104,12 @@ void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
         flag.store(false);
     }
 
+    // Initialize per-core error counts
+    core_error_counts_ = std::vector<std::atomic<int>>(num_threads_);
+    for (auto& cnt : core_error_counts_) {
+        cnt.store(0);
+    }
+
     // Clear previous errors
     error_verifier_.clear();
 
@@ -116,10 +125,25 @@ void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
     running_.store(true);
     start_time_ = std::chrono::steady_clock::now();
 
+    // Initialize core cycling
+    active_core_.store(0, std::memory_order_relaxed);
+
     // Launch worker threads
     workers_.reserve(num_threads_);
     for (int i = 0; i < num_threads_; ++i) {
         workers_.emplace_back(&CpuEngine::worker_thread, this, i, i);
+    }
+
+    // Launch core cycling thread if needed
+    if (load_pattern_ == LoadPattern::CORE_CYCLING) {
+        cycling_thread_ = std::thread([this]() {
+            while (running_.load(std::memory_order_relaxed)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+                if (!running_.load(std::memory_order_relaxed)) break;
+                int next = (active_core_.load(std::memory_order_relaxed) + 1) % num_threads_;
+                active_core_.store(next, std::memory_order_relaxed);
+            }
+        });
     }
 
     // Launch metrics collection thread
@@ -135,6 +159,10 @@ void CpuEngine::stop() {
         }
     }
     workers_.clear();
+
+    if (cycling_thread_.joinable()) {
+        cycling_thread_.join();
+    }
 
     if (metrics_thread_.joinable()) {
         metrics_thread_.join();
@@ -171,6 +199,30 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
     auto last_operand_change = std::chrono::steady_clock::now();
     int operand_phase = 0; // Changes operand selection in variable mode
 
+    // Batch iteration counter for phase rotation and verification scheduling
+    uint64_t batch_count = 0;
+
+    // Pre-allocate buffers for CACHE_ONLY and LARGE_DATA_SET modes (C1 fix)
+    const size_t cache_buf_size = 4 * 1024 * 1024; // 4MB
+    const size_t cache_num_doubles = cache_buf_size / sizeof(double);
+    std::vector<double> cache_buf;
+    if (mode_ == CpuStressMode::CACHE_ONLY) {
+        cache_buf.resize(cache_num_doubles);
+        for (size_t i = 0; i < cache_num_doubles; ++i) {
+            cache_buf[i] = static_cast<double>(i + 1) * 0.001;
+        }
+    }
+
+    const size_t large_buf_size = 256 * 1024 * 1024; // 256MB
+    const size_t large_num_doubles = large_buf_size / sizeof(double);
+    std::vector<double> large_buf;
+    if (mode_ == CpuStressMode::LARGE_DATA_SET) {
+        large_buf.resize(large_num_doubles);
+        for (size_t i = 0; i < large_num_doubles; ++i) {
+            large_buf[i] = static_cast<double>(i % 1000 + 1) * 0.001;
+        }
+    }
+
     while (running_.load(std::memory_order_relaxed)) {
         uint64_t ops = 0;
 
@@ -185,9 +237,21 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
             }
         }
 
+        // Core cycling: only the active core does real work, others yield
+        if (load_pattern_ == LoadPattern::CORE_CYCLING) {
+            if (active_core_.load(std::memory_order_relaxed) != thread_id) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+        }
+
         // Determine whether to use verification mode
-        // Verify every 10th batch to balance stress vs verification overhead
-        bool do_verify = (thread_ops_[thread_id].load(std::memory_order_relaxed) % 10 == 0);
+        bool do_verify;
+        if (intensity_mode_ == CpuIntensityMode::NORMAL) {
+            do_verify = true;  // Verify every batch for maximum error detection
+        } else {
+            do_verify = (batch_count % 10 == 0);
+        }
 
         switch (mode_) {
         case CpuStressMode::AVX512_FMA:
@@ -207,6 +271,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                         std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
                     error_verifier_.verify_array(core_id, vr.expected, vr.actual, vr.lane_count, ts_ms);
                     core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
                 }
             } else {
                 if (can_avx512) {
@@ -234,6 +302,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                         std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
                     error_verifier_.verify_array(core_id, vr.expected, vr.actual, vr.lane_count, ts_ms);
                     core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
                 }
             } else {
                 if (can_avx2) {
@@ -254,6 +326,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                         std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
                     error_verifier_.verify_array(core_id, vr.expected, vr.actual, vr.lane_count, ts_ms);
                     core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
                 }
             } else {
                 ops = cpu::stress_sse(batch_ns);
@@ -279,6 +355,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                     // Record via verify (will always fail since values differ)
                     error_verifier_.verify(core_id, 0.0, lsr.worst_residual, ts_ms);
                     core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
                 }
             } else {
                 ops = cpu::stress_linpack(batch_ns, 2048);
@@ -289,10 +369,92 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
             ops = cpu::stress_prime(batch_ns);
             break;
 
+        case CpuStressMode::CACHE_ONLY: {
+            // Run FMA operations on the pre-allocated cache-resident buffer
+            auto batch_start = std::chrono::steady_clock::now();
+            const double a = 1.0000001;
+            const double b = 0.0000001;
+            uint64_t local_ops = 0;
+
+            while (true) {
+                for (size_t i = 0; i < cache_num_doubles; ++i) {
+                    cache_buf[i] = cache_buf[i] * a + b; // FMA: multiply-add
+                }
+                local_ops += cache_num_doubles * 2; // 1 mul + 1 add per element
+
+                auto now = std::chrono::steady_clock::now();
+                uint64_t elapsed_ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(now - batch_start).count());
+                if (elapsed_ns >= batch_ns) break;
+            }
+
+            // Verification: check for NaN/Inf (indicates computation error)
+            if (do_verify) {
+                for (size_t i = 0; i < cache_num_doubles; ++i) {
+                    if (std::isnan(cache_buf[i]) || std::isinf(cache_buf[i])) {
+                        auto now = std::chrono::steady_clock::now();
+                        uint64_t ts_ms = static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                        error_verifier_.verify(core_id, 0.0, cache_buf[i], ts_ms);
+                        core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                        core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                        if (stop_on_error_) {
+                            running_.store(false, std::memory_order_relaxed);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            ops = local_ops;
+            break;
+        }
+
+        case CpuStressMode::LARGE_DATA_SET: {
+            // Streaming FMA sweep through pre-allocated large buffer - forces memory bus traffic
+            auto batch_start = std::chrono::steady_clock::now();
+            const double a = 1.0000001;
+            const double b = 0.0000001;
+            uint64_t local_ops = 0;
+
+            while (true) {
+                // Sequential sweep to maximize memory bandwidth utilization
+                for (size_t i = 0; i < large_num_doubles; ++i) {
+                    large_buf[i] = large_buf[i] * a + b; // FMA: multiply-add
+                }
+                local_ops += large_num_doubles * 2;
+
+                auto now = std::chrono::steady_clock::now();
+                uint64_t elapsed_ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(now - batch_start).count());
+                if (elapsed_ns >= batch_ns) break;
+            }
+
+            // Verification: compare computed results against expected values
+            if (do_verify) {
+                for (size_t i = 0; i < large_num_doubles; i += 4096) { // Sample every 4096th element
+                    if (std::isnan(large_buf[i]) || std::isinf(large_buf[i])) {
+                        auto now = std::chrono::steady_clock::now();
+                        uint64_t ts_ms = static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                        error_verifier_.verify(core_id, 0.0, large_buf[i], ts_ms);
+                        core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                        core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                        if (stop_on_error_) {
+                            running_.store(false, std::memory_order_relaxed);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            ops = local_ops;
+            break;
+        }
+
         case CpuStressMode::ALL: {
-            // Rotate through all modes based on thread_id
-            int phase = static_cast<int>(
-                thread_ops_[thread_id].load(std::memory_order_relaxed) >> 40) % 4;
+            // Rotate through all modes based on batch count
+            int phase = static_cast<int>(batch_count % 4);
 
             // Add operand_phase offset for variable mode
             if (load_pattern_ == LoadPattern::VARIABLE) {
@@ -314,6 +476,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                             std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
                         error_verifier_.verify_array(core_id, vr.expected, vr.actual, vr.lane_count, ts_ms);
                         core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                        core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                        if (stop_on_error_) {
+                            running_.store(false, std::memory_order_relaxed);
+                        }
                     }
                 } else {
                     if (can_avx2)
@@ -332,6 +498,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                             std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
                         error_verifier_.verify_array(core_id, vr.expected, vr.actual, vr.lane_count, ts_ms);
                         core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                        core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                        if (stop_on_error_) {
+                            running_.store(false, std::memory_order_relaxed);
+                        }
                     }
                 } else {
                     ops = cpu::stress_sse(batch_ns);
@@ -347,6 +517,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                             std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
                         error_verifier_.verify(core_id, 0.0, lsr.worst_residual, ts_ms);
                         core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                        core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                        if (stop_on_error_) {
+                            running_.store(false, std::memory_order_relaxed);
+                        }
                     }
                 } else {
                     ops = cpu::stress_linpack(batch_ns, 1024);
@@ -372,6 +546,8 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                 break;
             }
         }
+
+        ++batch_count;
     }
 }
 
@@ -406,12 +582,37 @@ void CpuEngine::metrics_thread_func() {
         // Per-core usage (approximation: all pinned threads at 100%)
         metrics.per_core_usage.resize(num_threads_, 100.0);
 
+        // Per-core type from CPUID hybrid detection
+        {
+            static const auto cpu_info = utils::detect_cpu();
+            metrics.per_core_type.resize(num_threads_);
+            for (int i = 0; i < num_threads_; ++i) {
+                if (i < static_cast<int>(cpu_info.core_types.size())) {
+                    switch (cpu_info.core_types[i]) {
+                    case utils::CoreType::PERFORMANCE:
+                        metrics.per_core_type[i] = "P-core";
+                        break;
+                    case utils::CoreType::EFFICIENCY:
+                        metrics.per_core_type[i] = "E-core";
+                        break;
+                    default:
+                        metrics.per_core_type[i] = "Unknown";
+                        break;
+                    }
+                } else {
+                    metrics.per_core_type[i] = "Unknown";
+                }
+            }
+        }
+
         // Error information
         metrics.error_count = error_verifier_.error_count();
         metrics.errors = error_verifier_.get_errors();
         metrics.core_has_error.resize(num_threads_, false);
+        metrics.per_core_error_count.resize(num_threads_, 0);
         for (int i = 0; i < num_threads_; ++i) {
             metrics.core_has_error[i] = core_error_flags_[i].load(std::memory_order_relaxed);
+            metrics.per_core_error_count[i] = core_error_counts_[i].load(std::memory_order_relaxed);
         }
 
         // Track peak GFLOPS
@@ -438,6 +639,29 @@ void CpuEngine::metrics_thread_func() {
         prev_total_ops = total_ops;
         prev_time = now;
     }
+}
+
+std::string CpuEngine::error_summary() const {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    int total = current_metrics_.error_count;
+    if (total == 0) return "No errors detected";
+
+    int cores_affected = 0;
+    std::ostringstream oss;
+    oss << total << " error(s) on ";
+
+    std::string detail;
+    for (int i = 0; i < (int)current_metrics_.per_core_error_count.size(); ++i) {
+        int cnt = current_metrics_.per_core_error_count[i];
+        if (cnt > 0) {
+            cores_affected++;
+            if (!detail.empty()) detail += ", ";
+            detail += "Core #" + std::to_string(i) + " (" + std::to_string(cnt) + ")";
+        }
+    }
+
+    oss << cores_affected << " core(s): " << detail;
+    return oss.str();
 }
 
 } // namespace occt

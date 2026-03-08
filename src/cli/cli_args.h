@@ -28,11 +28,13 @@ struct CliOptions {
     int file_size_mb = 256;   // Storage test file size in MB
     int queue_depth = 4;      // Storage I/O queue depth
     QString storage_path;     // Storage test path (empty = temp dir)
+    QString benchmark_path;   // Storage benchmark target path (default: current dir)
 
     // GPU options (Fix 2-1)
     int gpu_index = -1;       // GPU index (-1 = default)
     int shader_complexity = 1; // Vulkan shader complexity (1-5)
-    QString adaptive_mode;    // "variable" or "switch"
+    QString adaptive_mode;    // "variable", "switch", or "coil_whine"
+    float coil_freq = 100.0f; // Coil whine frequency in Hz (0 = sweep mode)
 
     // PSU options (Fix 2-2)
     bool use_all_gpus = false;
@@ -42,6 +44,24 @@ struct CliOptions {
 
     // Certificate options (Fix 3-2)
     QString cert_tier;        // "bronze", "silver", "gold", "platinum"
+
+    // WHEA monitoring (P3-4)
+    bool whea = false;        // Enable WHEA error monitoring during tests
+
+    // Combined test (P3-5)
+    QString engines;          // Comma-separated engine list for combined test: "cpu,gpu,ram,storage"
+
+    // Report comparison (P4-3)
+    QString compare_a;        // First report path for comparison
+    QString compare_b;        // Second report path for comparison
+
+    // Certificate store (P4-4)
+    QString upload_cert;      // Certificate JSON file to upload
+    QString verify_hash;      // Hash to verify
+    bool list_certs = false;  // List all stored certificates
+
+    // Leaderboard (P4-5)
+    QString leaderboard_cmd;  // "show" or "submit"
 };
 
 /// Parse command-line arguments into CliOptions.

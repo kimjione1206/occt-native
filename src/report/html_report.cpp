@@ -3,8 +3,29 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 namespace occt {
+
+// Escape a string for safe insertion into HTML content/attributes.
+static QString escapeHtml(const QString& s)
+{
+    QString out;
+    out.reserve(s.size());
+    for (QChar c : s) {
+        switch (c.unicode()) {
+        case '&':  out += "&amp;";  break;
+        case '<':  out += "&lt;";   break;
+        case '>':  out += "&gt;";   break;
+        case '"':  out += "&quot;"; break;
+        case '\'': out += "&#39;";  break;
+        default:   out += c;        break;
+        }
+    }
+    return out;
+}
 
 bool HtmlReport::save(const TestResults& results, const QString& path)
 {
@@ -63,13 +84,13 @@ bool HtmlReport::save(const TestResults& results, const QString& path)
     out << "<h2>System Information</h2>\n"
         << "<div class=\"info-grid\">\n"
         << "  <div class=\"info-item\"><div class=\"label\">CPU</div><div class=\"value\">"
-        << si.cpu_name << " (" << si.cpu_cores << "C/" << si.cpu_threads << "T)</div></div>\n"
+        << escapeHtml(si.cpu_name) << " (" << si.cpu_cores << "C/" << si.cpu_threads << "T)</div></div>\n"
         << "  <div class=\"info-item\"><div class=\"label\">GPU</div><div class=\"value\">"
-        << si.gpu_name << "</div></div>\n"
+        << escapeHtml(si.gpu_name) << "</div></div>\n"
         << "  <div class=\"info-item\"><div class=\"label\">RAM</div><div class=\"value\">"
-        << si.ram_total << "</div></div>\n"
+        << escapeHtml(si.ram_total) << "</div></div>\n"
         << "  <div class=\"info-item\"><div class=\"label\">OS</div><div class=\"value\">"
-        << si.os_name << "</div></div>\n"
+        << escapeHtml(si.os_name) << "</div></div>\n"
         << "</div>\n";
 
     // Test Results
@@ -80,10 +101,10 @@ bool HtmlReport::save(const TestResults& results, const QString& path)
 
     int pass_count = 0, fail_count = 0;
     for (const auto& r : results.results) {
-        out << "<tr><td>" << r.timestamp << "</td>"
-            << "<td>" << r.test_type << "</td>"
-            << "<td>" << r.mode << "</td>"
-            << "<td>" << r.duration << "</td>"
+        out << "<tr><td>" << escapeHtml(r.timestamp) << "</td>"
+            << "<td>" << escapeHtml(r.test_type) << "</td>"
+            << "<td>" << escapeHtml(r.mode) << "</td>"
+            << "<td>" << escapeHtml(r.duration) << "</td>"
             << "<td>" << r.error_count << "</td>"
             << "<td class=\"" << (r.passed ? "pass" : "fail") << "\">"
             << (r.passed ? "PASS" : "FAIL") << "</td></tr>\n";
@@ -98,17 +119,19 @@ bool HtmlReport::save(const TestResults& results, const QString& path)
             << "<canvas id=\"sensorChart\" width=\"1000\" height=\"300\"></canvas>\n"
             << "</div>\n";
 
-        // Embed sensor data as JS array
-        out << "<script>\n"
-            << "var sensorData = [\n";
+        // Embed sensor data as JS array using JSON serialization for safety
+        QJsonArray sensorArray;
         for (int i = 0; i < results.sensor_series.size(); ++i) {
             const auto& dp = results.sensor_series[i];
-            out << "  {t:" << dp.timestamp_sec << ",v:" << dp.value
-                << ",n:\"" << dp.sensor_name << "\"}";
-            if (i < results.sensor_series.size() - 1) out << ",";
-            out << "\n";
+            QJsonObject obj;
+            obj["t"] = dp.timestamp_sec;
+            obj["v"] = dp.value;
+            obj["n"] = dp.sensor_name;
+            sensorArray.append(obj);
         }
-        out << "];\n";
+        QJsonDocument sensorDoc(sensorArray);
+        out << "<script>\n"
+            << "var sensorData = " << sensorDoc.toJson(QJsonDocument::Compact) << ";\n";
 
         // Simple canvas chart renderer
         out << R"(

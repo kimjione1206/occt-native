@@ -23,8 +23,9 @@ enum class GpuStressMode {
 
 /// Adaptive load mode for VULKAN_ADAPTIVE stress mode.
 enum class AdaptiveMode {
-    VARIABLE,  // Gradually increase load +5% every 20 seconds
-    SWITCH,    // Alternate between 20% and 80% load
+    VARIABLE,    // Gradually increase load +5% every 20 seconds
+    SWITCH,      // Alternate between 20% and 80% load
+    COIL_WHINE,  // Square wave oscillation at specified frequency for coil whine testing
 };
 
 struct GpuInfo {
@@ -77,6 +78,12 @@ public:
     /// Set adaptive mode for VULKAN_ADAPTIVE mode.
     void set_adaptive_mode(AdaptiveMode mode);
 
+    /// Set the switch interval for SWITCH adaptive mode (default 0.33s = 330ms).
+    void set_switch_interval(float seconds);
+
+    /// Set frequency for COIL_WHINE adaptive mode (10-15000 Hz, 0 = sweep mode).
+    void set_coil_whine_freq(float hz);
+
     /// List detected GPUs.
     std::vector<GpuInfo> get_available_gpus() const;
 
@@ -101,6 +108,10 @@ public:
 
     using MetricsCallback = std::function<void(const GpuMetrics&)>;
     void set_metrics_callback(MetricsCallback cb);
+
+    /// When enabled, the engine will automatically stop when a VRAM error is detected.
+    void set_stop_on_error(bool enable);
+    bool stop_on_error() const;
 
 private:
     struct Impl;

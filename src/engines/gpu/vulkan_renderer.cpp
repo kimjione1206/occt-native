@@ -23,9 +23,12 @@ namespace occt { namespace gpu {
 
 struct PushConstants {
     float mvp[16];
-    float model[16];
     float params[4]; // time, complexity, draw_index, total_draws
+    // NOTE: model matrix removed to stay within the 128-byte push constant
+    // guaranteed minimum. If per-draw model data is needed, use a UBO or SSBO.
 };
+static_assert(sizeof(PushConstants) <= 128,
+              "PushConstants exceeds 128-byte guaranteed minimum for push constants");
 
 // ─── Identity / math helpers ────────────────────────────────────────────────
 
@@ -405,7 +408,6 @@ FrameResult VulkanRenderer::render_frame(float time_secs) {
 
             mat4_multiply(mv, view, model);
             mat4_multiply(pc.mvp, proj, mv);
-            std::memcpy(pc.model, model, sizeof(model));
             pc.params[0] = time_secs;
             pc.params[1] = static_cast<float>(complexity_);
             pc.params[2] = static_cast<float>(i);
@@ -420,6 +422,16 @@ FrameResult VulkanRenderer::render_frame(float time_secs) {
     }
 
     vkCmdEndRenderPass(cmd);
+
+    // Pipeline barrier: ensure render pass writes complete before transfer read
+    VkMemoryBarrier mem_barrier{};
+    mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    mem_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    mem_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0, 1, &mem_barrier, 0, nullptr, 0, nullptr);
 
     // Copy image to readback buffer
     VkBufferImageCopy copy_region{};

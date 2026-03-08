@@ -8,6 +8,8 @@ add_library(occt_report STATIC
     csv_exporter.cpp
     report_manager.h
     report_manager.cpp
+    report_comparator.h
+    report_comparator.cpp
 )
 
 target_include_directories(occt_report PUBLIC

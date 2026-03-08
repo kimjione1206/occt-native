@@ -35,6 +35,16 @@
     #include <fstream>
 #endif
 
+// Thread affinity headers for hybrid detection
+#if defined(_WIN32)
+    #define WIN32_LEAN_AND_MEAN
+    #define NOMINMAX
+    #include <windows.h>
+#elif defined(__linux__)
+    #include <pthread.h>
+    #include <sched.h>
+#endif
+
 namespace occt { namespace utils {
 
 #if OCCT_X86
@@ -183,6 +193,176 @@ static int get_physical_cores() {
     return static_cast<int>(std::thread::hardware_concurrency());
 }
 
+// --- Hybrid core topology detection ---
+
+#if OCCT_X86
+
+CoreType detect_core_type(int core_id) {
+    (void)core_id;
+    // Check if CPUID leaf 0x1A is supported (Intel Hybrid Technology / Thread Director)
+    int info[4] = {};
+    CPUID(info, 0);
+    unsigned int max_leaf = static_cast<unsigned int>(info[0]);
+    if (max_leaf < 0x1A) {
+        return CoreType::UNKNOWN;
+    }
+
+    // Note: On the current thread's core, CPUID leaf 0x1A returns the core type
+    // of the core executing this instruction. For accurate per-core detection,
+    // the caller must set thread affinity to the target core before calling.
+    CPUID(info, 0x1A);
+    unsigned int core_type_id = (static_cast<unsigned int>(info[0]) >> 24) & 0xFF;
+
+    // Intel core type encoding:
+    // 0x20 = Intel Atom (Efficiency core)
+    // 0x40 = Intel Core (Performance core)
+    if (core_type_id == 0x40) {
+        return CoreType::PERFORMANCE;
+    } else if (core_type_id == 0x20) {
+        return CoreType::EFFICIENCY;
+    }
+
+    return CoreType::UNKNOWN;
+}
+
+static void detect_hybrid_topology(CpuInfo& info) {
+    int logical = info.logical_cores;
+    if (logical <= 0) return;
+
+    info.core_types.resize(logical, CoreType::UNKNOWN);
+
+    // Check if this is an Intel CPU with hybrid support (leaf 7, EDX bit 15)
+    int regs[4] = {};
+    CPUIDEX(regs, 7, 0);
+    bool has_hybrid = (regs[3] & (1 << 15)) != 0;
+
+    if (!has_hybrid) {
+        // No hybrid architecture - all cores are the same type
+        return;
+    }
+
+    // Detect core type per logical core using thread affinity + CPUID 0x1A
+    int p_count = 0;
+    int e_count = 0;
+
+#if defined(_WIN32)
+    for (int i = 0; i < logical; ++i) {
+        HANDLE thread = GetCurrentThread();
+        DWORD_PTR old_mask = SetThreadAffinityMask(thread, 1ULL << i);
+        if (old_mask == 0) {
+            info.core_types[i] = CoreType::UNKNOWN;
+            continue;
+        }
+        // Force reschedule to target core
+        SwitchToThread();
+
+        CoreType ct = detect_core_type(i);
+        info.core_types[i] = ct;
+        if (ct == CoreType::PERFORMANCE) p_count++;
+        else if (ct == CoreType::EFFICIENCY) e_count++;
+
+        // Restore original affinity
+        SetThreadAffinityMask(thread, old_mask);
+    }
+#elif defined(__linux__)
+    cpu_set_t original_set;
+    CPU_ZERO(&original_set);
+    pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &original_set);
+
+    for (int i = 0; i < logical; ++i) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(i, &cpuset);
+        if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0) {
+            info.core_types[i] = CoreType::UNKNOWN;
+            continue;
+        }
+        // Yield to ensure we're on the target core
+        sched_yield();
+
+        CoreType ct = detect_core_type(i);
+        info.core_types[i] = ct;
+        if (ct == CoreType::PERFORMANCE) p_count++;
+        else if (ct == CoreType::EFFICIENCY) e_count++;
+    }
+
+    // Restore original affinity
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &original_set);
+#else
+    // macOS x86 with hybrid (unlikely but handle gracefully)
+    for (int i = 0; i < logical; ++i) {
+        info.core_types[i] = CoreType::UNKNOWN;
+    }
+#endif
+
+    info.p_cores = p_count;
+    info.e_cores = e_count;
+    info.is_hybrid = (p_count > 0 && e_count > 0);
+}
+
+#else // ARM / non-x86
+
+CoreType detect_core_type(int core_id) {
+    (void)core_id;
+#if defined(__APPLE__)
+    // On Apple Silicon, we cannot query per-core type via a simple call.
+    // Use detect_hybrid_topology() for aggregate counts.
+    int p_cores = 0;
+    size_t size = sizeof(p_cores);
+    if (sysctlbyname("hw.perflevel0.physicalcpu", &p_cores, &size, nullptr, 0) == 0) {
+        if (core_id < p_cores) {
+            return CoreType::PERFORMANCE;
+        }
+        return CoreType::EFFICIENCY;
+    }
+#endif
+    return CoreType::UNKNOWN;
+}
+
+static void detect_hybrid_topology(CpuInfo& info) {
+#if defined(__APPLE__)
+    int p_cores = 0, e_cores = 0;
+    size_t size = sizeof(int);
+
+    // Apple Silicon: perflevel0 = Performance, perflevel1 = Efficiency
+    if (sysctlbyname("hw.perflevel0.physicalcpu", &p_cores, &size, nullptr, 0) == 0) {
+        info.p_cores = p_cores;
+    }
+    size = sizeof(int);
+    if (sysctlbyname("hw.perflevel1.physicalcpu", &e_cores, &size, nullptr, 0) == 0) {
+        info.e_cores = e_cores;
+    }
+
+    info.is_hybrid = (info.p_cores > 0 && info.e_cores > 0);
+
+    // Build per-core type mapping
+    // Apple Silicon typically schedules P-cores as the first logical cores
+    int logical = info.logical_cores;
+    info.core_types.resize(logical, CoreType::UNKNOWN);
+
+    if (info.is_hybrid) {
+        // P-cores first, then E-cores
+        // Note: logical cores per P-core may differ from E-core (e.g., M1 Pro has
+        // no SMT, so logical == physical for both). We use physical counts as
+        // the boundary since Apple Silicon doesn't have SMT.
+        for (int i = 0; i < logical; ++i) {
+            if (i < info.p_cores) {
+                info.core_types[i] = CoreType::PERFORMANCE;
+            } else if (i < info.p_cores + info.e_cores) {
+                info.core_types[i] = CoreType::EFFICIENCY;
+            }
+        }
+    }
+#else
+    // Non-Apple ARM or other: no hybrid detection available
+    int logical = info.logical_cores;
+    info.core_types.resize(logical, CoreType::UNKNOWN);
+    (void)info;
+#endif
+}
+
+#endif // OCCT_X86
+
 CpuInfo detect_cpu() {
     CpuInfo info;
 
@@ -196,6 +376,7 @@ CpuInfo detect_cpu() {
 
     detect_features(info);
     detect_cache(info);
+    detect_hybrid_topology(info);
 
     return info;
 }

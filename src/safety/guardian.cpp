@@ -1,4 +1,5 @@
 #include "guardian.h"
+#include "monitor/whea_monitor.h"
 
 #include <algorithm>
 #include <chrono>
@@ -64,6 +65,11 @@ void SafetyGuardian::set_emergency_callback(EmergencyCallback cb) {
     emergency_cb_ = std::move(cb);
 }
 
+void SafetyGuardian::set_whea_monitor(WheaMonitor* whea) {
+    whea_monitor_ = whea;
+    last_whea_count_ = whea ? whea->error_count() : 0;
+}
+
 // ─── Check Loop (200 ms interval) ───────────────────────────────────────────
 
 void SafetyGuardian::check_loop() {
@@ -103,6 +109,20 @@ void SafetyGuardian::check_loop() {
             emergency_stop(oss.str());
         }
 
+        // Check WHEA errors
+        if (whea_monitor_) {
+            int current_count = whea_monitor_->error_count();
+            if (current_count > last_whea_count_) {
+                int new_errors = current_count - last_whea_count_;
+                last_whea_count_ = current_count;
+                std::ostringstream oss;
+                oss << "WHEA hardware error detected (" << new_errors
+                    << " new error" << (new_errors > 1 ? "s" : "")
+                    << ", " << current_count << " total)";
+                emergency_stop(oss.str());
+            }
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 }
@@ -110,6 +130,11 @@ void SafetyGuardian::check_loop() {
 // ─── Emergency Stop ──────────────────────────────────────────────────────────
 
 void SafetyGuardian::emergency_stop(const std::string& reason) {
+    // Prevent multiple triggers: atomically set from false to true
+    bool expected = false;
+    if (!emergency_triggered_.compare_exchange_strong(expected, true))
+        return;  // Already triggered
+
     // Stop all registered engines
     {
         std::lock_guard<std::mutex> lk(engines_mutex_);

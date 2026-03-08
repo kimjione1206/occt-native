@@ -151,7 +151,16 @@ add_subdirectory(src/utils)
 add_subdirectory(src/scheduler)
 add_subdirectory(src/certification)
 add_subdirectory(src/report)
+add_subdirectory(src/api)
+add_subdirectory(src/benchmark)
 add_subdirectory(src/cli)
+
+# ─── 테스트 ───────────────────────────────────────────────────────────────
+option(BUILD_TESTS "Build test executables" ON)
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # ─── Qt 리소스 ───────────────────────────────────────────────────────────────
 qt6_add_resources(OCCT_RESOURCES resources/occt_native.qrc)

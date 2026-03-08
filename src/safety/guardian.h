@@ -12,6 +12,8 @@
 
 namespace occt {
 
+class WheaMonitor;
+
 struct SafetyLimits {
     double cpu_temp_max  = 95.0;   // degrees C
     double gpu_temp_max  = 90.0;   // degrees C
@@ -49,6 +51,10 @@ public:
     using EmergencyCallback = std::function<void(const std::string& reason)>;
     void set_emergency_callback(EmergencyCallback cb);
 
+    /// Set the WHEA monitor to check during the safety loop.
+    /// When set and WHEA errors are detected, triggers emergency stop.
+    void set_whea_monitor(WheaMonitor* whea);
+
 private:
     void check_loop();
     void emergency_stop(const std::string& reason);
@@ -66,6 +72,11 @@ private:
 
     EmergencyCallback emergency_cb_;
     std::mutex cb_mutex_;
+
+    std::atomic<bool> emergency_triggered_{false};
+
+    WheaMonitor* whea_monitor_ = nullptr;
+    int last_whea_count_ = 0;
 };
 
 } // namespace occt

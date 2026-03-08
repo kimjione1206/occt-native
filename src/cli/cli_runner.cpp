@@ -8,12 +8,16 @@
 #include "engines/benchmark/cache_benchmark.h"
 #include "engines/benchmark/memory_benchmark.h"
 #include "monitor/sensor_manager.h"
+#include "monitor/whea_monitor.h"
 #include "utils/cpuid.h"
 #include "report/csv_exporter.h"
 #include "scheduler/test_scheduler.h"
 #include "certification/certificate.h"
 #include "certification/cert_generator.h"
 #include "scheduler/preset_schedules.h"
+#include "report/report_comparator.h"
+#include "api/cert_store.h"
+#include "benchmark/leaderboard.h"
 
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -83,6 +87,27 @@ int CliRunner::run(const CliOptions& opts)
         return run_monitor(opts);
     }
 
+    // Report comparison dispatch (P4-3)
+    if (!opts.compare_a.isEmpty() && !opts.compare_b.isEmpty()) {
+        return run_compare(opts);
+    }
+
+    // Certificate store dispatch (P4-4)
+    if (!opts.upload_cert.isEmpty()) {
+        return run_cert_upload(opts);
+    }
+    if (!opts.verify_hash.isEmpty()) {
+        return run_cert_verify(opts);
+    }
+    if (opts.list_certs) {
+        return run_cert_list(opts);
+    }
+
+    // Leaderboard dispatch (P4-5)
+    if (!opts.leaderboard_cmd.isEmpty()) {
+        return run_leaderboard(opts);
+    }
+
     if (opts.test.isEmpty()) {
         emit_json("error", "message", "No test specified. Use --test <type> or --help.");
         return 2;
@@ -98,6 +123,11 @@ int CliRunner::run(const CliOptions& opts)
         return run_certificate(opts);
     }
 
+    // Combined test dispatch (P3-5)
+    if (opts.test == "combined") {
+        return run_combined(opts);
+    }
+
     return run_test(opts);
 }
 
@@ -111,6 +141,9 @@ int CliRunner::run_test(const CliOptions& opts)
 
     emit_json("progress", "message", QString("Starting %1 test (duration: %2s)").arg(opts.test).arg(duration));
 
+    // WHEA monitoring (P3-4)
+    auto whea = start_whea_if_enabled(opts);
+
     auto start = std::chrono::steady_clock::now();
 
     if (opts.test == "cpu") {
@@ -121,6 +154,8 @@ int CliRunner::run_test(const CliOptions& opts)
         else if (opts.mode == "prime") mode = CpuStressMode::PRIME;
         else if (opts.mode == "sse") mode = CpuStressMode::SSE_FLOAT;
         else if (opts.mode == "avx512") mode = CpuStressMode::AVX512_FMA;
+        else if (opts.mode == "cache") mode = CpuStressMode::CACHE_ONLY;
+        else if (opts.mode == "large_data") mode = CpuStressMode::LARGE_DATA_SET;
         else if (opts.mode == "all") mode = CpuStressMode::ALL;
 
         int threads = opts.threads > 0 ? opts.threads : 0;
@@ -128,6 +163,7 @@ int CliRunner::run_test(const CliOptions& opts)
         // Parse load pattern (Fix 1-3)
         LoadPattern lp = LoadPattern::STEADY;
         if (opts.load_pattern == "variable") lp = LoadPattern::VARIABLE;
+        else if (opts.load_pattern == "core_cycling") lp = LoadPattern::CORE_CYCLING;
 
         CpuMetrics last_metrics{};
         engine.set_metrics_callback([this, &last_metrics](const CpuMetrics& m) {
@@ -270,8 +306,13 @@ int CliRunner::run_test(const CliOptions& opts)
         if (gmode == GpuStressMode::VULKAN_3D || gmode == GpuStressMode::VULKAN_ADAPTIVE)
             engine.set_shader_complexity(opts.shader_complexity);
         if (gmode == GpuStressMode::VULKAN_ADAPTIVE) {
-            AdaptiveMode am = (opts.adaptive_mode == "switch") ? AdaptiveMode::SWITCH : AdaptiveMode::VARIABLE;
+            AdaptiveMode am = AdaptiveMode::VARIABLE;
+            if (opts.adaptive_mode == "switch") am = AdaptiveMode::SWITCH;
+            else if (opts.adaptive_mode == "coil_whine") am = AdaptiveMode::COIL_WHINE;
             engine.set_adaptive_mode(am);
+            if (am == AdaptiveMode::COIL_WHINE) {
+                engine.set_coil_whine_freq(opts.coil_freq);
+            }
         }
 
         GpuMetrics last_gpu_metrics{};
@@ -363,6 +404,57 @@ int CliRunner::run_test(const CliOptions& opts)
 
     } else if (opts.test == "benchmark") {
         // Benchmarks are synchronous - run() blocks and returns result
+        if (opts.mode == "storage") {
+            emit_json("progress", "message", "Running storage benchmark (CrystalDiskMark-style)...");
+            StorageEngine engine;
+
+            std::string bench_path = opts.benchmark_path.isEmpty()
+                ? "." : opts.benchmark_path.toStdString();
+            int bench_file_size = opts.file_size_mb > 0 ? opts.file_size_mb : 1024;
+
+            auto br = engine.run_benchmark(bench_path, bench_file_size);
+
+            if (br.results.empty()) {
+                emit_json("error", "storage_benchmark",
+                    QVariant(QString::fromStdString(engine.last_error())));
+                return 2;
+            }
+
+            QJsonObject bench;
+            bench["device_path"] = QString::fromStdString(br.device_path);
+            bench["timestamp"] = QString::fromStdString(br.timestamp);
+
+            QJsonArray tests;
+            for (const auto& t : br.results) {
+                QJsonObject test_obj;
+                test_obj["test_name"] = QString::fromStdString(t.test_name);
+                test_obj["throughput_mbs"] = t.throughput_mbs;
+                test_obj["iops"] = t.iops;
+                test_obj["latency_us"] = t.latency_us;
+                tests.append(test_obj);
+            }
+            bench["tests"] = tests;
+            emit_json("result", "storage_benchmark", QJsonDocument(bench).toVariant());
+
+            TestResultData result;
+            result.timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+            result.test_type = "Benchmark";
+            result.mode = "Storage";
+            // Use first sequential read result as headline score
+            double seq_read_mbs = 0;
+            double seq_write_mbs = 0;
+            for (const auto& t : br.results) {
+                if (t.test_name == "SEQ1M Q8T1 Read") seq_read_mbs = t.throughput_mbs;
+                if (t.test_name == "SEQ1M Q8T1 Write") seq_write_mbs = t.throughput_mbs;
+            }
+            result.score = QString("SEQ R:%1 W:%2 MB/s")
+                .arg(seq_read_mbs, 0, 'f', 1)
+                .arg(seq_write_mbs, 0, 'f', 1);
+            result.passed = true;
+            result.error_count = 0;
+            results_.results.append(result);
+        }
+
         if (opts.mode == "cache" || opts.mode.isEmpty() || opts.mode == "all") {
             emit_json("progress", "message", "Running cache benchmark...");
             CacheBenchmark cb;
@@ -432,6 +524,9 @@ int CliRunner::run_test(const CliOptions& opts)
         return 2;
     }
 
+    // Stop WHEA monitor
+    stop_whea(whea);
+
     results_.overall_verdict = test_passed ? "PASS" : "FAIL";
     auto total_elapsed = std::chrono::steady_clock::now() - start;
     results_.total_duration_secs = std::chrono::duration<double>(total_elapsed).count();
@@ -448,6 +543,9 @@ int CliRunner::run_test(const CliOptions& opts)
     final_result["verdict"] = results_.overall_verdict;
     final_result["total_tests"] = results_.results.size();
     final_result["duration_secs"] = results_.total_duration_secs;
+    if (whea_error_count_ > 0) {
+        final_result["whea_errors"] = whea_error_count_;
+    }
     emit_json("result", "summary", QJsonDocument(final_result).toVariant());
 
     return test_passed ? 0 : 1;
@@ -745,6 +843,273 @@ int CliRunner::run_monitor(const CliOptions& opts)
     return 0;
 }
 
+// ─── WHEA monitoring helpers (P3-4) ──────────────────────────────────────────
+
+std::unique_ptr<WheaMonitor> CliRunner::start_whea_if_enabled(const CliOptions& opts)
+{
+    whea_error_count_ = 0;
+
+    if (!opts.whea) return nullptr;
+
+#ifndef _WIN32
+    emit_json("warning", "message", "WHEA monitoring only available on Windows");
+    return nullptr;
+#else
+    auto whea = std::make_unique<WheaMonitor>();
+    whea->set_auto_stop(opts.stop_on_error);
+
+    whea->set_error_callback([this](const WheaError& err) {
+        QJsonObject w;
+        w["type_str"] = err.source;
+        w["description"] = err.description.left(256);
+        emit_json("whea_error", "whea", QJsonDocument(w).toVariant());
+    });
+
+    if (whea->start()) {
+        emit_json("progress", "message", "WHEA hardware error monitoring enabled");
+    } else {
+        emit_json("warning", "message", "Failed to start WHEA monitor");
+        return nullptr;
+    }
+    return whea;
+#endif
+}
+
+void CliRunner::stop_whea(std::unique_ptr<WheaMonitor>& whea)
+{
+    if (!whea) return;
+
+    whea->stop();
+    whea_error_count_ = whea->error_count();
+
+    if (whea_error_count_ > 0) {
+        emit_json("warning", "message",
+            QString("WHEA detected %1 hardware error(s) during test").arg(whea_error_count_));
+    }
+    whea.reset();
+}
+
+// ─── Combined test (P3-5) ───────────────────────────────────────────────────
+
+int CliRunner::run_combined(const CliOptions& opts)
+{
+    results_ = TestResults{};
+    results_.system_info = collect_system_info();
+
+    if (opts.engines.isEmpty()) {
+        emit_json("error", "message", "Combined test requires --engines <list> (e.g. cpu,gpu,ram,storage)");
+        return 2;
+    }
+
+    int duration = opts.duration > 0 ? opts.duration : 60;
+    QStringList engine_list = opts.engines.split(',', Qt::SkipEmptyParts);
+
+    for (auto& e : engine_list) e = e.trimmed().toLower();
+
+    emit_json("progress", "message",
+        QString("Starting combined test: %1 (duration: %2s)").arg(engine_list.join(", ")).arg(duration));
+
+    // WHEA monitoring
+    auto whea = start_whea_if_enabled(opts);
+
+    // Create engines
+    std::unique_ptr<CpuEngine> cpu;
+    std::unique_ptr<GpuEngine> gpu;
+    std::unique_ptr<RamEngine> ram;
+    std::unique_ptr<StorageEngine> storage;
+
+    CpuMetrics last_cpu{};
+    GpuMetrics last_gpu{};
+    RamMetrics last_ram{};
+    StorageMetrics last_storage{};
+
+    for (const auto& eng : engine_list) {
+        if (eng == "cpu") {
+            cpu = std::make_unique<CpuEngine>();
+            cpu->set_metrics_callback([this, &last_cpu](const CpuMetrics& m) {
+                last_cpu = m;
+                QJsonObject metric;
+                metric["gflops"] = m.gflops;
+                metric["temperature"] = m.temperature;
+                metric["threads"] = m.active_threads;
+                metric["error_count"] = m.error_count;
+                metric["elapsed"] = m.elapsed_secs;
+                emit_json("metric", "cpu", QJsonDocument(metric).toVariant());
+            });
+        } else if (eng == "gpu") {
+            gpu = std::make_unique<GpuEngine>();
+            if (!gpu->initialize()) {
+                emit_json("warning", "message", "Failed to initialize GPU engine, skipping GPU");
+                gpu.reset();
+                continue;
+            }
+            gpu->set_metrics_callback([this, &last_gpu](const GpuMetrics& m) {
+                last_gpu = m;
+                QJsonObject metric;
+                metric["gflops"] = m.gflops;
+                metric["temperature"] = m.temperature;
+                metric["vram_errors"] = static_cast<qint64>(m.vram_errors);
+                metric["elapsed"] = m.elapsed_secs;
+                emit_json("metric", "gpu", QJsonDocument(metric).toVariant());
+            });
+        } else if (eng == "ram") {
+            ram = std::make_unique<RamEngine>();
+            ram->set_metrics_callback([this, &last_ram](const RamMetrics& m) {
+                last_ram = m;
+                QJsonObject metric;
+                metric["tested_mb"] = m.memory_used_mb;
+                metric["errors"] = static_cast<int>(m.errors_found);
+                metric["elapsed"] = m.elapsed_secs;
+                emit_json("metric", "ram", QJsonDocument(metric).toVariant());
+            });
+        } else if (eng == "storage") {
+            storage = std::make_unique<StorageEngine>();
+            storage->set_metrics_callback([this, &last_storage](const StorageMetrics& m) {
+                last_storage = m;
+                QJsonObject metric;
+                metric["read_mbps"] = m.read_mbs;
+                metric["write_mbps"] = m.write_mbs;
+                metric["elapsed"] = m.elapsed_secs;
+                emit_json("metric", "storage", QJsonDocument(metric).toVariant());
+            });
+        } else {
+            emit_json("warning", "message", QString("Unknown engine '%1', skipping").arg(eng));
+        }
+    }
+
+    // Start all engines simultaneously
+    auto start = std::chrono::steady_clock::now();
+
+    if (cpu) cpu->start(CpuStressMode::AVX2_FMA, 0, duration);
+    if (gpu) gpu->start(GpuStressMode::MATRIX_MUL, duration);
+    if (ram) ram->start(RamPattern::MARCH_C_MINUS, 0.70, 999);
+    if (storage) {
+        std::string spath = opts.storage_path.isEmpty()
+            ? QDir::tempPath().toStdString() : opts.storage_path.toStdString();
+        storage->start(StorageMode::MIXED, spath, opts.file_size_mb);
+    }
+
+    // Wait until duration elapsed or all engines stop
+    while (true) {
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        double elapsed_secs = std::chrono::duration<double>(elapsed).count();
+        if (elapsed_secs >= duration) break;
+
+        QThread::msleep(500);
+        QCoreApplication::processEvents();
+
+        // Check for errors if stop_on_error
+        if (opts.stop_on_error) {
+            int total_err = last_cpu.error_count
+                + static_cast<int>(last_gpu.vram_errors)
+                + static_cast<int>(last_ram.errors_found);
+            if (total_err > 0) {
+                emit_json("progress", "message", "Error detected, stopping all engines");
+                break;
+            }
+        }
+
+        // Check if all engines finished on their own
+        bool all_done = true;
+        if (cpu && cpu->is_running()) all_done = false;
+        if (gpu && gpu->is_running()) all_done = false;
+        if (ram && ram->is_running()) all_done = false;
+        if (storage && storage->is_running()) all_done = false;
+        if (all_done) break;
+    }
+
+    // Stop all engines
+    if (cpu && cpu->is_running()) cpu->stop();
+    if (gpu && gpu->is_running()) gpu->stop();
+    if (ram && ram->is_running()) ram->stop();
+    if (storage && storage->is_running()) storage->stop();
+
+    stop_whea(whea);
+
+    auto total_elapsed = std::chrono::steady_clock::now() - start;
+    double total_secs = std::chrono::duration<double>(total_elapsed).count();
+
+    // Collect results
+    int total_errors = 0;
+    bool test_passed = true;
+
+    if (cpu) {
+        TestResultData r;
+        r.timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+        r.test_type = "CPU";
+        r.mode = "combined";
+        r.duration = QString("%1s").arg(int(total_secs));
+        r.error_count = last_cpu.error_count;
+        r.passed = (r.error_count == 0);
+        r.score = QString("%1 GFLOPS").arg(last_cpu.gflops, 0, 'f', 2);
+        if (!r.passed) test_passed = false;
+        total_errors += r.error_count;
+        results_.results.append(r);
+    }
+    if (gpu) {
+        TestResultData r;
+        r.timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+        r.test_type = "GPU";
+        r.mode = "combined";
+        r.duration = QString("%1s").arg(int(total_secs));
+        r.error_count = static_cast<int>(last_gpu.vram_errors + last_gpu.artifact_count);
+        r.passed = (r.error_count == 0);
+        r.score = QString("%1 GFLOPS").arg(last_gpu.gflops, 0, 'f', 2);
+        if (!r.passed) test_passed = false;
+        total_errors += r.error_count;
+        results_.results.append(r);
+    }
+    if (ram) {
+        auto rm = ram->get_metrics();
+        TestResultData r;
+        r.timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+        r.test_type = "RAM";
+        r.mode = "combined";
+        r.duration = QString("%1s").arg(int(total_secs));
+        r.error_count = static_cast<int>(rm.errors_found);
+        r.passed = (r.error_count == 0);
+        r.score = QString("%1 MB tested").arg(rm.memory_used_mb, 0, 'f', 0);
+        if (!r.passed) test_passed = false;
+        total_errors += r.error_count;
+        results_.results.append(r);
+    }
+    if (storage) {
+        auto sm = storage->get_metrics();
+        TestResultData r;
+        r.timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+        r.test_type = "Storage";
+        r.mode = "combined";
+        r.duration = QString("%1s").arg(int(total_secs));
+        r.error_count = 0;
+        r.passed = true;
+        r.score = QString("R:%1 W:%2 MB/s").arg(sm.read_mbs, 0, 'f', 1).arg(sm.write_mbs, 0, 'f', 1);
+        results_.results.append(r);
+    }
+
+    results_.overall_verdict = test_passed ? "PASS" : "FAIL";
+    results_.total_duration_secs = total_secs;
+
+    // Generate report if requested
+    if (!opts.report_format.isEmpty() && !opts.output_path.isEmpty()) {
+        if (!generate_report(results_, opts)) {
+            emit_json("error", "message", "Failed to generate report");
+        }
+    }
+
+    // Final result
+    QJsonObject final_result;
+    final_result["verdict"] = results_.overall_verdict;
+    final_result["engines"] = opts.engines;
+    final_result["total_errors"] = total_errors;
+    final_result["duration_secs"] = total_secs;
+    if (whea_error_count_ > 0) {
+        final_result["whea_errors"] = whea_error_count_;
+    }
+    emit_json("result", "summary", QJsonDocument(final_result).toVariant());
+
+    return test_passed ? 0 : 1;
+}
+
 bool CliRunner::generate_report(const TestResults& results, const CliOptions& opts)
 {
     ReportManager mgr;
@@ -774,6 +1139,216 @@ bool CliRunner::generate_report(const TestResults& results, const CliOptions& op
         emit_json("result", "report_path", path);
     }
     return ok;
+}
+
+// ─── Report comparison (P4-3) ───────────────────────────────────────────────
+
+int CliRunner::run_compare(const CliOptions& opts)
+{
+    emit_json("progress", "message",
+        QString("Comparing reports:\n  A: %1\n  B: %2").arg(opts.compare_a).arg(opts.compare_b));
+
+    auto result = compare_reports(opts.compare_a.toStdString(), opts.compare_b.toStdString());
+
+    if (result.entries.empty()) {
+        emit_json("error", "message", "No comparable metrics found between reports");
+        return 2;
+    }
+
+    // Print text table to stdout
+    std::string table = format_comparison_table(result);
+    std::fprintf(stdout, "%s", table.c_str());
+    std::fflush(stdout);
+
+    // Also emit JSON result
+    QJsonArray entries_json;
+    for (const auto& e : result.entries) {
+        QJsonObject ej;
+        ej["metric"] = QString::fromStdString(e.metric_name);
+        ej["value_a"] = e.value_a;
+        ej["value_b"] = e.value_b;
+        ej["diff_abs"] = e.diff_abs;
+        ej["diff_pct"] = e.diff_pct;
+        ej["direction"] = QString::fromStdString(e.direction);
+        entries_json.append(ej);
+    }
+
+    QJsonObject cmp;
+    cmp["entries"] = entries_json;
+    cmp["summary"] = QString::fromStdString(result.summary);
+    emit_json("result", "comparison", QJsonDocument(cmp).toVariant());
+
+    return 0;
+}
+
+// ─── Certificate store (P4-4) ───────────────────────────────────────────────
+
+int CliRunner::run_cert_upload(const CliOptions& opts)
+{
+    QFile f(opts.upload_cert);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        emit_json("error", "message", QString("Cannot open certificate file: %1").arg(opts.upload_cert));
+        return 2;
+    }
+    std::string cert_json = f.readAll().toStdString();
+    f.close();
+
+    CertStore store;
+    if (store.submit(cert_json)) {
+        emit_json("result", "message", "Certificate uploaded successfully");
+        return 0;
+    } else {
+        emit_json("error", "message", "Failed to upload certificate");
+        return 2;
+    }
+}
+
+int CliRunner::run_cert_verify(const CliOptions& opts)
+{
+    CertStore store;
+    std::string hash = opts.verify_hash.toStdString();
+
+    if (store.verify(hash)) {
+        emit_json("result", "verified", true);
+        std::fprintf(stdout, "Certificate %s: VERIFIED\n", hash.c_str());
+
+        // Also output the certificate data
+        std::string cert = store.lookup(hash);
+        if (!cert.empty()) {
+            std::fprintf(stdout, "%s\n", cert.c_str());
+        }
+        return 0;
+    } else {
+        emit_json("result", "verified", false);
+        std::fprintf(stdout, "Certificate %s: NOT FOUND or INVALID\n", hash.c_str());
+        return 1;
+    }
+}
+
+int CliRunner::run_cert_list(const CliOptions& opts)
+{
+    (void)opts;
+    CertStore store;
+    auto hashes = store.list_hashes();
+
+    std::fprintf(stdout, "Stored certificates: %zu\n", hashes.size());
+    std::fprintf(stdout, "%-64s  %s\n", "SHA-256 Hash", "Status");
+    std::fprintf(stdout, "%s\n", std::string(80, '-').c_str());
+
+    for (const auto& h : hashes) {
+        bool valid = store.verify(h);
+        std::fprintf(stdout, "%-64s  %s\n", h.c_str(), valid ? "OK" : "INVALID");
+    }
+
+    QJsonArray arr;
+    for (const auto& h : hashes) {
+        arr.append(QString::fromStdString(h));
+    }
+    emit_json("result", "certs", QJsonDocument(arr).toVariant());
+
+    return 0;
+}
+
+// ─── Leaderboard (P4-5) ─────────────────────────────────────────────────────
+
+int CliRunner::run_leaderboard(const CliOptions& opts)
+{
+    Leaderboard lb;
+
+    if (opts.leaderboard_cmd == "show") {
+        std::string table = lb.format_table();
+        std::fprintf(stdout, "%s", table.c_str());
+        std::fflush(stdout);
+
+        // Also emit JSON
+        auto rankings = lb.get_rankings("overall");
+        QJsonArray arr;
+        for (const auto& e : rankings) {
+            QJsonObject obj;
+            obj["system_name"] = QString::fromStdString(e.system_name);
+            obj["cpu_score"] = e.cpu_score;
+            obj["gpu_score"] = e.gpu_score;
+            obj["ram_score"] = e.ram_score;
+            obj["storage_score"] = e.storage_score;
+            obj["overall_score"] = e.overall_score;
+            obj["timestamp"] = QString::fromStdString(e.timestamp);
+            arr.append(obj);
+        }
+        emit_json("result", "leaderboard", QJsonDocument(arr).toVariant());
+        return 0;
+
+    } else if (opts.leaderboard_cmd == "submit") {
+        // Collect system info for the entry name
+        auto sysinfo = collect_system_info();
+
+        BenchmarkEntry entry;
+        entry.system_name = sysinfo.cpu_name.toStdString();
+        if (sysinfo.gpu_name != "N/A") {
+            entry.system_name += " + " + sysinfo.gpu_name.toStdString();
+        }
+
+        // If we have test results, extract scores from them
+        for (const auto& r : results_.results) {
+            if (r.test_type == "CPU" || r.test_type == "Benchmark") {
+                // Try to extract GFLOPS from score string
+                if (r.score.contains("GFLOPS")) {
+                    bool ok = false;
+                    double val = r.score.split(' ').first().toDouble(&ok);
+                    if (ok && val > entry.cpu_score) entry.cpu_score = val;
+                }
+            }
+            if (r.test_type == "GPU") {
+                if (r.score.contains("GFLOPS")) {
+                    bool ok = false;
+                    double val = r.score.split(' ').first().toDouble(&ok);
+                    if (ok && val > entry.gpu_score) entry.gpu_score = val;
+                }
+            }
+            if (r.test_type == "RAM" || (r.test_type == "Benchmark" && r.mode == "Memory")) {
+                if (r.score.contains("GB/s")) {
+                    // Extract first number as read bandwidth
+                    QString s = r.score;
+                    s.remove("R:").remove("W:").remove("C:").remove("GB/s");
+                    bool ok = false;
+                    double val = s.trimmed().split(' ').first().toDouble(&ok);
+                    if (ok && val > entry.ram_score) entry.ram_score = val;
+                }
+            }
+            if (r.test_type == "Storage") {
+                if (r.score.contains("MB/s")) {
+                    // Extract read speed
+                    QString s = r.score;
+                    int idx = s.indexOf("R:");
+                    if (idx >= 0) {
+                        bool ok = false;
+                        double val = s.mid(idx + 2).split(' ').first().toDouble(&ok);
+                        if (ok && val > entry.storage_score) entry.storage_score = val;
+                    }
+                }
+            }
+        }
+
+        entry.overall_score = Leaderboard::compute_overall_score(
+            entry.cpu_score, entry.gpu_score, entry.ram_score, entry.storage_score);
+
+        lb.submit(entry);
+
+        emit_json("result", "message", QString("Submitted to leaderboard: %1 (score: %2)")
+            .arg(QString::fromStdString(entry.system_name))
+            .arg(entry.overall_score, 0, 'f', 2));
+
+        // Show updated leaderboard
+        std::string table = lb.format_table();
+        std::fprintf(stdout, "%s", table.c_str());
+        std::fflush(stdout);
+
+        return 0;
+
+    } else {
+        emit_json("error", "message",
+            QString("Unknown leaderboard command: %1. Use 'show' or 'submit'.").arg(opts.leaderboard_cmd));
+        return 2;
+    }
 }
 
 } // namespace occt

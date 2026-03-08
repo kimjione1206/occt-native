@@ -94,37 +94,54 @@ __kernel void matmul_stress_fp64(
 )CL";
 
 static const char* const kKernelVRAM = R"CL(
-__kernel void walking_ones(__global uint* buffer, __global uint* errors, const uint pattern_shift) {
+// NOTE: barrier(CLK_GLOBAL_MEM_FENCE) only synchronizes within a single
+// work-group, NOT globally across all work-groups. For a true global memory
+// fence the kernel must be split into two enqueue calls (write pass + verify
+// pass). We use a two-pass approach: the host enqueues the write kernel,
+// waits for completion, then enqueues the verify kernel.
+
+__kernel void walking_ones_write(__global uint* buffer, const uint pattern_shift) {
     int gid = get_global_id(0);
     uint pattern = 1u << (pattern_shift % 32);
     buffer[gid] = pattern;
-    barrier(CLK_GLOBAL_MEM_FENCE);
+}
+__kernel void walking_ones_verify(__global uint* buffer, __global uint* errors, const uint pattern_shift) {
+    int gid = get_global_id(0);
+    uint pattern = 1u << (pattern_shift % 32);
     uint rv = buffer[gid];
     if (rv != pattern) atomic_inc(&errors[0]);
 }
 
-__kernel void walking_zeros(__global uint* buffer, __global uint* errors, const uint pattern_shift) {
+__kernel void walking_zeros_write(__global uint* buffer, const uint pattern_shift) {
     int gid = get_global_id(0);
     uint pattern = ~(1u << (pattern_shift % 32));
     buffer[gid] = pattern;
-    barrier(CLK_GLOBAL_MEM_FENCE);
+}
+__kernel void walking_zeros_verify(__global uint* buffer, __global uint* errors, const uint pattern_shift) {
+    int gid = get_global_id(0);
+    uint pattern = ~(1u << (pattern_shift % 32));
     uint rv = buffer[gid];
     if (rv != pattern) atomic_inc(&errors[0]);
 }
 
-__kernel void address_test(__global uint* buffer, __global uint* errors) {
+__kernel void address_test_write(__global uint* buffer) {
     int gid = get_global_id(0);
     buffer[gid] = (uint)gid;
-    barrier(CLK_GLOBAL_MEM_FENCE);
+}
+__kernel void address_test_verify(__global uint* buffer, __global uint* errors) {
+    int gid = get_global_id(0);
     uint rv = buffer[gid];
     if (rv != (uint)gid) atomic_inc(&errors[0]);
 }
 
-__kernel void alternating_pattern(__global uint* buffer, __global uint* errors, const uint phase) {
+__kernel void alternating_pattern_write(__global uint* buffer, const uint phase) {
     int gid = get_global_id(0);
     uint pattern = (phase == 0) ? 0xAAAAAAAAu : 0x55555555u;
     buffer[gid] = pattern;
-    barrier(CLK_GLOBAL_MEM_FENCE);
+}
+__kernel void alternating_pattern_verify(__global uint* buffer, __global uint* errors, const uint phase) {
+    int gid = get_global_id(0);
+    uint pattern = (phase == 0) ? 0xAAAAAAAAu : 0x55555555u;
     uint rv = buffer[gid];
     if (rv != pattern) atomic_inc(&errors[0]);
 }
@@ -145,10 +162,14 @@ struct GpuEngine::Impl {
     cl_kernel k_matmul_fp64 = nullptr;
     cl_kernel k_fma = nullptr;
     cl_kernel k_trig = nullptr;
-    cl_kernel k_walking_ones = nullptr;
-    cl_kernel k_walking_zeros = nullptr;
-    cl_kernel k_address_test = nullptr;
-    cl_kernel k_alternating = nullptr;
+    cl_kernel k_walking_ones_write = nullptr;
+    cl_kernel k_walking_ones_verify = nullptr;
+    cl_kernel k_walking_zeros_write = nullptr;
+    cl_kernel k_walking_zeros_verify = nullptr;
+    cl_kernel k_address_test_write = nullptr;
+    cl_kernel k_address_test_verify = nullptr;
+    cl_kernel k_alternating_write = nullptr;
+    cl_kernel k_alternating_verify = nullptr;
 
     // Buffers (allocated per-run)
     cl_mem buf_a = nullptr;
@@ -174,6 +195,7 @@ struct GpuEngine::Impl {
 
     bool initialized = false;
     bool opencl_available = false;
+    std::atomic<bool> stop_on_error_{false};
     std::string last_error;
 
 #ifdef OCCT_HAS_VULKAN
@@ -181,6 +203,8 @@ struct GpuEngine::Impl {
     bool vulkan_available = false;
     gpu::ShaderComplexity shader_complexity = gpu::ShaderComplexity::LEVEL_1;
     AdaptiveMode adaptive_mode = AdaptiveMode::VARIABLE;
+    float switch_interval_secs = 0.33f;  // 330ms for aggressive PSU transient testing
+    float coil_whine_freq_hz = 100.0f;   // Coil whine test frequency (0 = sweep mode)
 #endif
 
     // ─── Lifecycle ──────────────────────────────────────────────────────
@@ -324,14 +348,22 @@ struct GpuEngine::Impl {
             k_matmul_fp64 = nullptr;
         }
 
-        // VRAM test kernels
-        err = cl_ctx.compile_kernel(kKernelVRAM, "walking_ones", "", k_walking_ones);
+        // VRAM test kernels (two-pass: write then verify for global sync)
+        err = cl_ctx.compile_kernel(kKernelVRAM, "walking_ones_write", "", k_walking_ones_write);
         if (err != CL_SUCCESS) return false;
-        err = cl_ctx.compile_kernel(kKernelVRAM, "walking_zeros", "", k_walking_zeros);
+        err = cl_ctx.compile_kernel(kKernelVRAM, "walking_ones_verify", "", k_walking_ones_verify);
         if (err != CL_SUCCESS) return false;
-        err = cl_ctx.compile_kernel(kKernelVRAM, "address_test", "", k_address_test);
+        err = cl_ctx.compile_kernel(kKernelVRAM, "walking_zeros_write", "", k_walking_zeros_write);
         if (err != CL_SUCCESS) return false;
-        err = cl_ctx.compile_kernel(kKernelVRAM, "alternating_pattern", "", k_alternating);
+        err = cl_ctx.compile_kernel(kKernelVRAM, "walking_zeros_verify", "", k_walking_zeros_verify);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "address_test_write", "", k_address_test_write);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "address_test_verify", "", k_address_test_verify);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "alternating_pattern_write", "", k_alternating_write);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "alternating_pattern_verify", "", k_alternating_verify);
         if (err != CL_SUCCESS) return false;
 
         return true;
@@ -345,10 +377,14 @@ struct GpuEngine::Impl {
         release(k_matmul_fp64);
         release(k_fma);
         release(k_trig);
-        release(k_walking_ones);
-        release(k_walking_zeros);
-        release(k_address_test);
-        release(k_alternating);
+        release(k_walking_ones_write);
+        release(k_walking_ones_verify);
+        release(k_walking_zeros_write);
+        release(k_walking_zeros_verify);
+        release(k_address_test_write);
+        release(k_address_test_verify);
+        release(k_alternating_write);
+        release(k_alternating_verify);
     }
 
     void release_buffers() {
@@ -573,13 +609,19 @@ struct GpuEngine::Impl {
 
         // Run through different test patterns
         while (running.load()) {
-            // Walking ones (32 shifts)
+            // Walking ones (32 shifts) - two-pass for global sync
             for (uint32_t shift = 0; shift < 32 && running.load(); ++shift) {
                 cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
-                clSetKernelArg(k_walking_ones, 0, sizeof(cl_mem), &buf_vram);
-                clSetKernelArg(k_walking_ones, 1, sizeof(cl_mem), &buf_errors);
-                clSetKernelArg(k_walking_ones, 2, sizeof(uint32_t), &shift);
-                cl_ctx.enqueue_ndrange(k_walking_ones, 1, &global_size, &local_size);
+                // Pass 1: write pattern
+                clSetKernelArg(k_walking_ones_write, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_walking_ones_write, 1, sizeof(uint32_t), &shift);
+                cl_ctx.enqueue_ndrange(k_walking_ones_write, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                // Pass 2: verify pattern
+                clSetKernelArg(k_walking_ones_verify, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_walking_ones_verify, 1, sizeof(cl_mem), &buf_errors);
+                clSetKernelArg(k_walking_ones_verify, 2, sizeof(uint32_t), &shift);
+                cl_ctx.enqueue_ndrange(k_walking_ones_verify, 1, &global_size, &local_size);
                 cl_ctx.finish();
 
                 uint32_t err_count = 0;
@@ -592,13 +634,19 @@ struct GpuEngine::Impl {
                 check_timeout(start);
             }
 
-            // Walking zeros (32 shifts)
+            // Walking zeros (32 shifts) - two-pass for global sync
             for (uint32_t shift = 0; shift < 32 && running.load(); ++shift) {
                 cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
-                clSetKernelArg(k_walking_zeros, 0, sizeof(cl_mem), &buf_vram);
-                clSetKernelArg(k_walking_zeros, 1, sizeof(cl_mem), &buf_errors);
-                clSetKernelArg(k_walking_zeros, 2, sizeof(uint32_t), &shift);
-                cl_ctx.enqueue_ndrange(k_walking_zeros, 1, &global_size, &local_size);
+                // Pass 1: write pattern
+                clSetKernelArg(k_walking_zeros_write, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_walking_zeros_write, 1, sizeof(uint32_t), &shift);
+                cl_ctx.enqueue_ndrange(k_walking_zeros_write, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                // Pass 2: verify pattern
+                clSetKernelArg(k_walking_zeros_verify, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_walking_zeros_verify, 1, sizeof(cl_mem), &buf_errors);
+                clSetKernelArg(k_walking_zeros_verify, 2, sizeof(uint32_t), &shift);
+                cl_ctx.enqueue_ndrange(k_walking_zeros_verify, 1, &global_size, &local_size);
                 cl_ctx.finish();
 
                 uint32_t err_count = 0;
@@ -611,12 +659,17 @@ struct GpuEngine::Impl {
                 check_timeout(start);
             }
 
-            // Address test
+            // Address test - two-pass for global sync
             if (running.load()) {
                 cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
-                clSetKernelArg(k_address_test, 0, sizeof(cl_mem), &buf_vram);
-                clSetKernelArg(k_address_test, 1, sizeof(cl_mem), &buf_errors);
-                cl_ctx.enqueue_ndrange(k_address_test, 1, &global_size, &local_size);
+                // Pass 1: write addresses
+                clSetKernelArg(k_address_test_write, 0, sizeof(cl_mem), &buf_vram);
+                cl_ctx.enqueue_ndrange(k_address_test_write, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                // Pass 2: verify addresses
+                clSetKernelArg(k_address_test_verify, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_address_test_verify, 1, sizeof(cl_mem), &buf_errors);
+                cl_ctx.enqueue_ndrange(k_address_test_verify, 1, &global_size, &local_size);
                 cl_ctx.finish();
 
                 uint32_t err_count = 0;
@@ -629,13 +682,19 @@ struct GpuEngine::Impl {
                 check_timeout(start);
             }
 
-            // Alternating pattern (phase 0 and 1)
+            // Alternating pattern (phase 0 and 1) - two-pass for global sync
             for (uint32_t phase = 0; phase < 2 && running.load(); ++phase) {
                 cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
-                clSetKernelArg(k_alternating, 0, sizeof(cl_mem), &buf_vram);
-                clSetKernelArg(k_alternating, 1, sizeof(cl_mem), &buf_errors);
-                clSetKernelArg(k_alternating, 2, sizeof(uint32_t), &phase);
-                cl_ctx.enqueue_ndrange(k_alternating, 1, &global_size, &local_size);
+                // Pass 1: write pattern
+                clSetKernelArg(k_alternating_write, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_alternating_write, 1, sizeof(uint32_t), &phase);
+                cl_ctx.enqueue_ndrange(k_alternating_write, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                // Pass 2: verify pattern
+                clSetKernelArg(k_alternating_verify, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_alternating_verify, 1, sizeof(cl_mem), &buf_errors);
+                clSetKernelArg(k_alternating_verify, 2, sizeof(uint32_t), &phase);
+                cl_ctx.enqueue_ndrange(k_alternating_verify, 1, &global_size, &local_size);
                 cl_ctx.finish();
 
                 uint32_t err_count = 0;
@@ -871,14 +930,31 @@ struct GpuEngine::Impl {
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
 
             // Adaptive load control
-            if (adaptive_mode == AdaptiveMode::VARIABLE) {
+            switch (adaptive_mode) {
+            case AdaptiveMode::VARIABLE: {
                 // Increase by 5% every 20 seconds
                 int phase = static_cast<int>(time_secs / 20.0f);
                 current_load = std::min(1.0f, 0.05f + 0.05f * static_cast<float>(phase));
-            } else { // SWITCH mode
-                // Alternate 20% / 80% every 20 seconds
-                int phase = static_cast<int>(time_secs / 20.0f);
-                current_load = (phase % 2 == 0) ? 0.2f : 0.8f;
+                break;
+            }
+            case AdaptiveMode::SWITCH: {
+                // Rapid alternation for PSU transient testing
+                int phase = static_cast<int>(time_secs / switch_interval_secs);
+                current_load = (phase % 2 == 0) ? 0.2f : 0.9f;  // 20% ↔ 90%
+                break;
+            }
+            case AdaptiveMode::COIL_WHINE: {
+                float freq = coil_whine_freq_hz;
+                if (freq <= 0.0f) {
+                    // Sweep mode: logarithmic sweep from 50Hz to 15kHz over 60 seconds
+                    freq = 50.0f * std::pow(300.0f, std::min(time_secs / 60.0f, 1.0f));
+                }
+                float period = 1.0f / freq;
+                float half_period = period / 2.0f;
+                float phase_time = std::fmod(time_secs, period);
+                current_load = (phase_time < half_period) ? 0.0f : 1.0f;
+                break;
+            }
             }
 
             renderer.set_gpu_load(current_load);
@@ -984,6 +1060,10 @@ struct GpuEngine::Impl {
         // Invoke callback outside mutex to avoid blocking the worker thread
         if (cb_copy) {
             cb_copy(snapshot);
+        }
+
+        if (stop_on_error_.load(std::memory_order_relaxed) && errors > 0) {
+            running.store(false);
         }
     }
 
@@ -1099,6 +1179,26 @@ void GpuEngine::set_adaptive_mode(AdaptiveMode mode) {
 #endif
 }
 
+void GpuEngine::set_switch_interval(float seconds) {
+#ifdef OCCT_HAS_VULKAN
+    impl_->switch_interval_secs = std::max(0.01f, seconds);
+#else
+    (void)seconds;
+#endif
+}
+
+void GpuEngine::set_coil_whine_freq(float hz) {
+#ifdef OCCT_HAS_VULKAN
+    // 0 = sweep mode; otherwise clamp to 10-15000 Hz
+    if (hz > 0.0f) {
+        hz = std::max(10.0f, std::min(15000.0f, hz));
+    }
+    impl_->coil_whine_freq_hz = hz;
+#else
+    (void)hz;
+#endif
+}
+
 std::vector<GpuInfo> GpuEngine::get_available_gpus() const {
     return impl_->gpu_infos;
 }
@@ -1178,6 +1278,14 @@ std::string GpuEngine::last_error() const {
 void GpuEngine::set_metrics_callback(MetricsCallback cb) {
     std::lock_guard<std::mutex> lock(impl_->metrics_mutex);
     impl_->metrics_cb = std::move(cb);
+}
+
+void GpuEngine::set_stop_on_error(bool enable) {
+    impl_->stop_on_error_.store(enable, std::memory_order_relaxed);
+}
+
+bool GpuEngine::stop_on_error() const {
+    return impl_->stop_on_error_.load(std::memory_order_relaxed);
 }
 
 } // namespace occt

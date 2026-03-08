@@ -70,7 +70,11 @@ QFrame* StoragePanel::createSettingsSection()
         "Sequential Write",
         "Random Read",
         "Random Write",
-        "Mixed Read/Write"
+        "Mixed Read/Write",
+        "Verify Sequential",
+        "Verify Random",
+        "Fill & Verify",
+        "Butterfly Verify"
     });
     layout->addWidget(modeCombo_);
 
@@ -156,6 +160,16 @@ QFrame* StoragePanel::createMonitoringSection()
     metricsLayout->addWidget(throughputLabel_->parentWidget());
     latencyLabel_ = createMetric("Avg Latency", "-- ms");
     metricsLayout->addWidget(latencyLabel_->parentWidget());
+    blocksVerifiedLabel_ = createMetric("Blocks Verified", "0");
+    metricsLayout->addWidget(blocksVerifiedLabel_->parentWidget());
+    verifyErrorsLabel_ = createMetric("Verify Errors", "0");
+    metricsLayout->addWidget(verifyErrorsLabel_->parentWidget());
+    crcErrorsLabel_ = createMetric("CRC Errors", "0");
+    metricsLayout->addWidget(crcErrorsLabel_->parentWidget());
+    patternErrorsLabel_ = createMetric("Pattern Errors", "0");
+    metricsLayout->addWidget(patternErrorsLabel_->parentWidget());
+    verifyMbsLabel_ = createMetric("Verify Speed", "-- MB/s");
+    metricsLayout->addWidget(verifyMbsLabel_->parentWidget());
 
     layout->addLayout(metricsLayout);
 
@@ -199,6 +213,10 @@ void StoragePanel::onStartStopClicked()
             case 2: mode = StorageMode::RAND_READ; break;
             case 3: mode = StorageMode::RAND_WRITE; break;
             case 4: mode = StorageMode::MIXED; break;
+            case 5: mode = StorageMode::VERIFY_SEQ; break;
+            case 6: mode = StorageMode::VERIFY_RAND; break;
+            case 7: mode = StorageMode::FILL_VERIFY; break;
+            case 8: mode = StorageMode::BUTTERFLY; break;
             default: mode = StorageMode::SEQ_READ; break;
         }
 
@@ -273,6 +291,48 @@ void StoragePanel::updateMonitoring()
     // Update latency (convert from microseconds to milliseconds)
     double latency_ms = m.latency_us / 1000.0;
     latencyLabel_->setText(QString::number(latency_ms, 'f', 2) + " ms");
+
+    // Update verification metrics
+    blocksVerifiedLabel_->setText(QString::number(m.blocks_verified));
+
+    if (m.verify_errors > 0) {
+        verifyErrorsLabel_->setText(QString::number(m.verify_errors));
+        verifyErrorsLabel_->setStyleSheet(
+            "color: #E74C3C; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    } else {
+        verifyErrorsLabel_->setText("0");
+        verifyErrorsLabel_->setStyleSheet(
+            "color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    }
+
+    // Update CRC errors
+    if (m.crc_errors > 0) {
+        crcErrorsLabel_->setText(QString::number(m.crc_errors));
+        crcErrorsLabel_->setStyleSheet(
+            "color: #E74C3C; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    } else {
+        crcErrorsLabel_->setText("0");
+        crcErrorsLabel_->setStyleSheet(
+            "color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    }
+
+    // Update pattern errors
+    if (m.pattern_errors > 0) {
+        patternErrorsLabel_->setText(QString::number(m.pattern_errors));
+        patternErrorsLabel_->setStyleSheet(
+            "color: #E74C3C; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    } else {
+        patternErrorsLabel_->setText("0");
+        patternErrorsLabel_->setStyleSheet(
+            "color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    }
+
+    // Update verify speed
+    if (m.verify_mbs > 0) {
+        verifyMbsLabel_->setText(QString::number(m.verify_mbs, 'f', 1) + " MB/s");
+    } else {
+        verifyMbsLabel_->setText("-- MB/s");
+    }
 }
 
 }} // namespace occt::gui

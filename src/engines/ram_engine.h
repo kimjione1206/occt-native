@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -11,6 +12,13 @@
 #include "base_engine.h"
 
 namespace occt {
+
+struct MemoryError {
+    uint64_t address;
+    uint64_t expected;
+    uint64_t actual;
+    double timestamp_secs;  // time since test start
+};
 
 enum class RamPattern {
     MARCH_C_MINUS,  // March C- algorithm (stuck-at / coupling faults)
@@ -28,6 +36,7 @@ struct RamMetrics {
     double elapsed_secs   = 0.0;
     double progress_pct   = 0.0;  // 0 ~ 100
     bool pages_locked     = true; // false if VirtualLock failed (results may be less accurate)
+    std::vector<MemoryError> error_log;  // detailed error records (capped at 1000)
 };
 
 class RamEngine : public IEngine {
@@ -71,10 +80,11 @@ private:
     std::thread worker_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
-    bool locked_pages_ = false; // Whether memory pages were successfully locked
+    std::atomic<bool> locked_pages_{false}; // Whether memory pages were successfully locked
 
     mutable std::mutex metrics_mutex_;
     RamMetrics metrics_;
+    std::chrono::steady_clock::time_point test_start_time_;
 
     MetricsCallback metrics_cb_;
     std::mutex cb_mutex_;

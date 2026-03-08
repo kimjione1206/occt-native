@@ -177,6 +177,8 @@ void TestScheduler::startStep(int index)
         else if (modeStr == "trig")   mode = GpuStressMode::TRIG_STRESS;
         else if (modeStr == "vram")   mode = GpuStressMode::VRAM_TEST;
         else if (modeStr == "mixed")  mode = GpuStressMode::MIXED;
+        else if (modeStr == "vulkan_3d")      mode = GpuStressMode::VULKAN_3D;
+        else if (modeStr == "vulkan_adaptive") mode = GpuStressMode::VULKAN_ADAPTIVE;
 
         gpu_engine_->start(mode, step.duration_secs);
 
@@ -199,10 +201,14 @@ void TestScheduler::startStep(int index)
 
         StorageMode mode = StorageMode::MIXED;
         QString modeStr = step.settings.value("mode", "mixed").toString().toLower();
-        if (modeStr == "seq_write")       mode = StorageMode::SEQ_WRITE;
-        else if (modeStr == "seq_read")   mode = StorageMode::SEQ_READ;
-        else if (modeStr == "rand_write") mode = StorageMode::RAND_WRITE;
-        else if (modeStr == "rand_read")  mode = StorageMode::RAND_READ;
+        if (modeStr == "seq_write")        mode = StorageMode::SEQ_WRITE;
+        else if (modeStr == "seq_read")    mode = StorageMode::SEQ_READ;
+        else if (modeStr == "rand_write")  mode = StorageMode::RAND_WRITE;
+        else if (modeStr == "rand_read")   mode = StorageMode::RAND_READ;
+        else if (modeStr == "verify_seq")  mode = StorageMode::VERIFY_SEQ;
+        else if (modeStr == "verify_rand") mode = StorageMode::VERIFY_RAND;
+        else if (modeStr == "fill_verify") mode = StorageMode::FILL_VERIFY;
+        else if (modeStr == "butterfly")   mode = StorageMode::BUTTERFLY;
 
         QString path = step.settings.value("path", "/tmp/occt_storage_test").toString();
         int sizeMb = step.settings.value("file_size_mb", 1024).toInt();
@@ -222,14 +228,20 @@ void TestScheduler::stopCurrentEngines()
         int errors = 0;
 
         if (engine == "cpu" && cpu_engine_ && cpu_engine_->is_running()) {
+            auto m = cpu_engine_->get_metrics();
+            errors = static_cast<int>(m.error_count);
             cpu_engine_->stop();
         } else if (engine == "gpu" && gpu_engine_ && gpu_engine_->is_running()) {
+            auto m = gpu_engine_->get_metrics();
+            errors = static_cast<int>(m.vram_errors + m.artifact_count);
             gpu_engine_->stop();
         } else if (engine == "ram" && ram_engine_ && ram_engine_->is_running()) {
             auto m = ram_engine_->get_metrics();
             errors = static_cast<int>(m.errors_found);
             ram_engine_->stop();
         } else if (engine == "storage" && storage_engine_ && storage_engine_->is_running()) {
+            auto m = storage_engine_->get_metrics();
+            errors = static_cast<int>(m.error_count);
             storage_engine_->stop();
         }
 

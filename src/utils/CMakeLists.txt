@@ -10,6 +10,8 @@ add_library(occt_utils STATIC
     app_config.h
     file_logger.cpp
     file_logger.h
+    crc32.cpp
+    crc32.h
     # timer.cpp
     # timer.h
     # system_info.cpp

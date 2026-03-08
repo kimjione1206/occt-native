@@ -75,7 +75,9 @@ QFrame* CpuPanel::createSettingsSection()
         "SSE",
         "Linpack",
         "Prime",
-        "All"
+        "All",
+        "Cache Only",
+        "Large Data Set"
     });
     layout->addWidget(modeCombo_);
 
@@ -87,6 +89,7 @@ QFrame* CpuPanel::createSettingsSection()
     loadPatternCombo_ = new QComboBox(frame);
     loadPatternCombo_->addItem("Steady", QStringLiteral("STEADY"));
     loadPatternCombo_->addItem("Variable (change every 10 min)", QStringLiteral("VARIABLE"));
+    loadPatternCombo_->addItem("Core Cycling", QStringLiteral("CORE_CYCLING"));
     layout->addWidget(loadPatternCombo_);
 
     // Thread count
@@ -329,11 +332,17 @@ void CpuPanel::onStartStopClicked()
             case 3: mode = CpuStressMode::LINPACK; break;
             case 4: mode = CpuStressMode::PRIME; break;
             case 5: mode = CpuStressMode::ALL; break;
+            case 6: mode = CpuStressMode::CACHE_ONLY; break;
+            case 7: mode = CpuStressMode::LARGE_DATA_SET; break;
             default: mode = CpuStressMode::AVX2_FMA; break;
         }
 
-        LoadPattern pattern = (loadPatternCombo_->currentIndex() == 1)
-            ? LoadPattern::VARIABLE : LoadPattern::STEADY;
+        LoadPattern pattern;
+        switch (loadPatternCombo_->currentIndex()) {
+            case 1: pattern = LoadPattern::VARIABLE; break;
+            case 2: pattern = LoadPattern::CORE_CYCLING; break;
+            default: pattern = LoadPattern::STEADY; break;
+        }
 
         int durationSec = durationCombo_->currentData().toInt();
 

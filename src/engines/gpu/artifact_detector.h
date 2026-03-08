@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -69,22 +70,23 @@ public:
     bool has_reference() const { return !reference_.empty(); }
 
     /// Get cumulative artifact statistics.
-    uint64_t total_artifacts_detected() const { return total_artifacts_; }
-    uint64_t total_frames_compared() const { return total_frames_; }
+    uint64_t total_artifacts_detected() const { return total_artifacts_.load(std::memory_order_relaxed); }
+    uint64_t total_frames_compared() const { return total_frames_.load(std::memory_order_relaxed); }
 
     /// Reset cumulative statistics.
     void reset_statistics();
 
 private:
     void classify_artifacts(ArtifactResult& result, uint32_t width, uint32_t height,
-                            const std::vector<bool>& error_map);
+                            const std::vector<bool>& error_map,
+                            const uint8_t* pixels);
 
     std::vector<uint8_t> reference_;
     uint32_t ref_width_ = 0;
     uint32_t ref_height_ = 0;
 
-    uint64_t total_artifacts_ = 0;
-    uint64_t total_frames_ = 0;
+    std::atomic<uint64_t> total_artifacts_{0};
+    std::atomic<uint64_t> total_frames_{0};
 };
 
 }} // namespace occt::gpu

@@ -20,5 +20,7 @@ target_link_libraries(occt_cli PUBLIC
     occt_utils
     occt_scheduler
     occt_certification
+    occt_api
+    occt_leaderboard
     Threads::Threads
 )
