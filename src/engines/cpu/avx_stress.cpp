@@ -38,7 +38,6 @@ static double compute_scalar_expected() {
     #include <intrin.h>
     #include <immintrin.h>
 #elif defined(__GNUC__) || defined(__clang__)
-    #include <cpuid.h>
     #if defined(__SSE2__)
         #include <emmintrin.h>
     #endif
@@ -64,9 +63,11 @@ static void cpuid_query(int info[4], int leaf) {
 #if defined(_MSC_VER)
     __cpuid(info, leaf);
 #elif defined(__GNUC__) || defined(__clang__)
-    __cpuid(leaf,
-            (unsigned int&)info[0], (unsigned int&)info[1],
-            (unsigned int&)info[2], (unsigned int&)info[3]);
+    __asm__ __volatile__ (
+        "cpuid"
+        : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3])
+        : "a"(leaf), "c"(0)
+    );
 #endif
 }
 
@@ -74,9 +75,11 @@ static void cpuidex_query(int info[4], int leaf, int sub) {
 #if defined(_MSC_VER)
     __cpuidex(info, leaf, sub);
 #elif defined(__GNUC__) || defined(__clang__)
-    __cpuid_count(leaf, sub,
-                  (unsigned int&)info[0], (unsigned int&)info[1],
-                  (unsigned int&)info[2], (unsigned int&)info[3]);
+    __asm__ __volatile__ (
+        "cpuid"
+        : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3])
+        : "a"(leaf), "c"(sub)
+    );
 #endif
 }
 

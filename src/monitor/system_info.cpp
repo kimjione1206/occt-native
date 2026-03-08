@@ -10,13 +10,20 @@
 
 #if defined(__x86_64__) || defined(__i386__)
 #ifndef _MSC_VER
-#include <cpuid.h>
-// Wrappers matching MSVC intrinsic signatures
+// Inline asm wrappers matching MSVC intrinsic signatures
 static inline void __cpuid(int info[4], int leaf) {
-    __cpuid_count(leaf, 0, info[0], info[1], info[2], info[3]);
+    __asm__ __volatile__ (
+        "cpuid"
+        : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3])
+        : "a"(leaf), "c"(0)
+    );
 }
 static inline void __cpuidex(int info[4], int leaf, int sub) {
-    __cpuid_count(leaf, sub, info[0], info[1], info[2], info[3]);
+    __asm__ __volatile__ (
+        "cpuid"
+        : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3])
+        : "a"(leaf), "c"(sub)
+    );
 }
 #endif
 #endif
