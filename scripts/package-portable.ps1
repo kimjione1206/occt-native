@@ -80,6 +80,16 @@ New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 # Copy the executable
 Copy-Item $ExePath $StagingDir
 
+# Copy license files
+$licenseFiles = @("LICENSE", "THIRD_PARTY_LICENSES.txt")
+foreach ($lf in $licenseFiles) {
+    $lfPath = Join-Path $ProjectDir $lf
+    if (Test-Path $lfPath) {
+        Copy-Item $lfPath $StagingDir
+        Write-Host "  Copied: $lf"
+    }
+}
+
 Write-Host "  Staging: $StagingDir"
 
 # ── Run windeployqt ────────────────────────────────────────────────────────
