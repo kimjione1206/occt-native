@@ -460,6 +460,7 @@ jobs:
       - name: "K1: Certification Invalid Tier (expect error output)"
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Certificate Invalid Tier Test ==="
           $output = & $exe --cli --cert-tier invalid_tier 2>&1 | Out-String
@@ -478,6 +479,7 @@ jobs:
       - name: "L1: No --test Argument (expect error output)"
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== CLI with no --test argument ==="
           $output = & $exe --cli 2>&1 | Out-String
@@ -492,6 +494,7 @@ jobs:
       - name: "L2: Unknown Test Type (expect error output)"
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Unknown test type 'foobar' ==="
           $output = & $exe --cli --test foobar 2>&1 | Out-String
@@ -506,6 +509,7 @@ jobs:
       - name: "L3: Invalid Cert Tier (expect error output)"
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Invalid cert tier 'unobtanium' ==="
           $output = & $exe --cli --cert-tier unobtanium 2>&1 | Out-String
