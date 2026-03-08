@@ -84,7 +84,11 @@ public:
     void select_gpu(int index);
 
     /// Start stress test. duration_secs=0 means run until stop() is called.
-    void start(GpuStressMode mode, int duration_secs = 0);
+    /// Returns false if the test cannot start (check last_error() for details).
+    bool start(GpuStressMode mode, int duration_secs = 0);
+
+    /// Returns the last error message from a failed start() call.
+    std::string last_error() const;
 
     /// Stop the running stress test.
     void stop();

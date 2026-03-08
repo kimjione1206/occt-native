@@ -64,23 +64,33 @@ StorageEngine::~StorageEngine() {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-void StorageEngine::start(StorageMode mode, const std::string& path,
+bool StorageEngine::start(StorageMode mode, const std::string& path,
                           uint64_t file_size_mb, int queue_depth) {
-    if (running_.load()) return;
+    if (running_.load()) {
+        last_error_ = "Storage test already running";
+        return false;
+    }
 
     queue_depth = std::max(queue_depth, 1);
     uint64_t file_size_bytes = file_size_mb * 1024ULL * 1024ULL;
 
+    // Validate path
+    std::string dir = path;
+    if (dir.empty()) dir = ".";
+
     {
         std::lock_guard<std::mutex> lk(metrics_mutex_);
         metrics_ = StorageMetrics{};
+        metrics_.state = "preparing";
     }
 
     stop_requested_.store(false);
     running_.store(true);
+    last_error_.clear();
 
-    worker_ = std::thread(&StorageEngine::run, this, mode, path,
+    worker_ = std::thread(&StorageEngine::run, this, mode, dir,
                           file_size_bytes, queue_depth);
+    return true;
 }
 
 void StorageEngine::stop() {
@@ -90,14 +100,17 @@ void StorageEngine::stop() {
     }
     running_.store(false);
 
-    // Clean up test file
+    // Delete test file in background to avoid blocking UI
     if (!test_file_path_.empty()) {
-#if defined(_WIN32)
-        DeleteFileA(test_file_path_.c_str());
-#else
-        unlink(test_file_path_.c_str());
-#endif
+        std::string path_copy = test_file_path_;
         test_file_path_.clear();
+        std::thread([path_copy]() {
+#if defined(_WIN32)
+            DeleteFileA(path_copy.c_str());
+#else
+            unlink(path_copy.c_str());
+#endif
+        }).detach();
     }
 }
 
@@ -243,6 +256,11 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
     if (needs_existing_file) {
         int wfd = open_direct(test_file_path_, false);
         if (wfd < 0) {
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                metrics_.state = "error";
+            }
+            last_error_ = "Failed to create test file at: " + test_file_path_;
             free_aligned(io_buf);
             running_.store(false);
             return;
@@ -254,14 +272,21 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
                                        file_size_bytes - written);
 #if defined(_WIN32)
             DWORD bytes_written = 0;
-            WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(wfd)),
+            BOOL ok = WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(wfd)),
                       io_buf, static_cast<DWORD>(to_write), &bytes_written, nullptr);
+            if (!ok || bytes_written == 0) break;
             written += bytes_written;
 #else
             ssize_t ret = write(wfd, io_buf, to_write);
             if (ret <= 0) break;
             written += static_cast<uint64_t>(ret);
 #endif
+            // Update preparation progress
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                metrics_.state = "preparing";
+                metrics_.progress_pct = (static_cast<double>(written) / file_size_bytes) * 100.0;
+            }
         }
         close_file(wfd);
     }
@@ -273,6 +298,12 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
         free_aligned(io_buf);
         running_.store(false);
         return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(metrics_mutex_);
+        metrics_.state = "testing";
+        metrics_.progress_pct = 0.0;
     }
 
     switch (mode) {
@@ -295,6 +326,12 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
 
     close_file(fd);
     free_aligned(io_buf);
+
+    {
+        std::lock_guard<std::mutex> lk(metrics_mutex_);
+        metrics_.state = "completed";
+    }
+
     running_.store(false);
 }
 
@@ -311,8 +348,13 @@ void StorageEngine::seq_write(int fd, uint8_t* buf, size_t buf_size,
 
 #if defined(_WIN32)
         DWORD bytes_written = 0;
-        WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+        BOOL ok = WriteFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
                   buf, static_cast<DWORD>(to_write), &bytes_written, nullptr);
+        if (!ok || bytes_written == 0) {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_.error_count++;
+            break;
+        }
         total_written += bytes_written;
 #else
         ssize_t ret = write(fd, buf, to_write);
@@ -328,6 +370,21 @@ void StorageEngine::seq_write(int fd, uint8_t* buf, size_t buf_size,
             metrics_.write_mbs = elapsed > 0 ?
                 (static_cast<double>(total_written) / (1024.0 * 1024.0)) / elapsed : 0;
             metrics_.progress_pct = (static_cast<double>(total_written) / file_size) * 100.0;
+        }
+
+        // Invoke metrics callback
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lk(cb_mutex_);
+            cb_copy = metrics_cb_;
+        }
+        if (cb_copy) {
+            StorageMetrics snap;
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                snap = metrics_;
+            }
+            cb_copy(snap);
         }
     }
 }
@@ -345,9 +402,13 @@ void StorageEngine::seq_read(int fd, uint8_t* buf, size_t buf_size,
 
 #if defined(_WIN32)
         DWORD bytes_read = 0;
-        ReadFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
+        BOOL ok = ReadFile(reinterpret_cast<HANDLE>(static_cast<intptr_t>(fd)),
                  buf, static_cast<DWORD>(to_read), &bytes_read, nullptr);
-        if (bytes_read == 0) break;
+        if (!ok || bytes_read == 0) {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            metrics_.error_count++;
+            break;
+        }
         total_read += bytes_read;
 #else
         ssize_t ret = read(fd, buf, to_read);
@@ -363,6 +424,21 @@ void StorageEngine::seq_read(int fd, uint8_t* buf, size_t buf_size,
             metrics_.read_mbs = elapsed > 0 ?
                 (static_cast<double>(total_read) / (1024.0 * 1024.0)) / elapsed : 0;
             metrics_.progress_pct = (static_cast<double>(total_read) / file_size) * 100.0;
+        }
+
+        // Invoke metrics callback
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lk(cb_mutex_);
+            cb_copy = metrics_cb_;
+        }
+        if (cb_copy) {
+            StorageMetrics snap;
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                snap = metrics_;
+            }
+            cb_copy(snap);
         }
     }
 }
@@ -427,6 +503,21 @@ void StorageEngine::rand_write(int fd, uint8_t* buf, uint64_t file_size,
             metrics_.write_mbs = metrics_.iops * BLOCK_SIZE_4K / (1024.0 * 1024.0);
             metrics_.latency_us = ops > 0 ? (elapsed * 1e6) / static_cast<double>(ops) : 0;
             metrics_.progress_pct = (static_cast<double>(ops) / target_ops) * 100.0;
+        }
+
+        // Invoke metrics callback
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lk(cb_mutex_);
+            cb_copy = metrics_cb_;
+        }
+        if (cb_copy) {
+            StorageMetrics snap;
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                snap = metrics_;
+            }
+            cb_copy(snap);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -510,6 +601,21 @@ void StorageEngine::rand_read(int fd, uint8_t* buf, uint64_t file_size,
             metrics_.read_mbs = metrics_.iops * BLOCK_SIZE_4K / (1024.0 * 1024.0);
             metrics_.latency_us = ops > 0 ? (elapsed * 1e6) / static_cast<double>(ops) : 0;
             metrics_.progress_pct = (static_cast<double>(ops) / target_ops) * 100.0;
+        }
+
+        // Invoke metrics callback
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lk(cb_mutex_);
+            cb_copy = metrics_cb_;
+        }
+        if (cb_copy) {
+            StorageMetrics snap;
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                snap = metrics_;
+            }
+            cb_copy(snap);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -616,6 +722,21 @@ void StorageEngine::mixed_io(int fd, uint8_t* buf, uint64_t file_size,
             metrics_.progress_pct = (static_cast<double>(ops) / target_ops) * 100.0;
         }
 
+        // Invoke metrics callback
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lk(cb_mutex_);
+            cb_copy = metrics_cb_;
+        }
+        if (cb_copy) {
+            StorageMetrics snap;
+            {
+                std::lock_guard<std::mutex> lk(metrics_mutex_);
+                snap = metrics_;
+            }
+            cb_copy(snap);
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
@@ -633,6 +754,10 @@ void StorageEngine::mixed_io(int fd, uint8_t* buf, uint64_t file_size,
         metrics_.latency_us = ops > 0 ? (elapsed * 1e6) / static_cast<double>(ops) : 0;
         metrics_.progress_pct = 100.0;
     }
+}
+
+std::string StorageEngine::last_error() const {
+    return last_error_;
 }
 
 } // namespace occt

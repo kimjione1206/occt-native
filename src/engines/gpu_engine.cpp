@@ -174,6 +174,7 @@ struct GpuEngine::Impl {
 
     bool initialized = false;
     bool opencl_available = false;
+    std::string last_error;
 
 #ifdef OCCT_HAS_VULKAN
     gpu::VulkanContext vk_ctx;
@@ -811,21 +812,28 @@ struct GpuEngine::Impl {
 
             {
                 auto sensor = utils::gpu_query_sensors(active_vendor, selected_device_idx);
-                std::lock_guard<std::mutex> lock(metrics_mutex);
-                latest_metrics.fps = fps;
-                latest_metrics.draw_calls = frame.draw_calls;
-                latest_metrics.artifact_count = total_artifacts;
-                latest_metrics.shader_level = static_cast<int>(shader_complexity) + 1;
-                latest_metrics.elapsed_secs = elapsed;
-                latest_metrics.temperature = sensor.temperature_c;
-                latest_metrics.power_watts = sensor.power_watts;
-                latest_metrics.gpu_usage_pct = sensor.gpu_usage_pct;
-                if (sensor.vram_total_bytes > 0) {
-                    latest_metrics.vram_usage_pct =
-                        100.0 * static_cast<double>(sensor.vram_used_bytes) /
-                        static_cast<double>(sensor.vram_total_bytes);
+                GpuMetrics snapshot;
+                MetricsCallback cb_copy;
+                {
+                    std::lock_guard<std::mutex> lock(metrics_mutex);
+                    latest_metrics.fps = fps;
+                    latest_metrics.draw_calls = frame.draw_calls;
+                    latest_metrics.artifact_count = total_artifacts;
+                    latest_metrics.shader_level = static_cast<int>(shader_complexity) + 1;
+                    latest_metrics.elapsed_secs = elapsed;
+                    latest_metrics.temperature = sensor.temperature_c;
+                    latest_metrics.power_watts = sensor.power_watts;
+                    latest_metrics.gpu_usage_pct = sensor.gpu_usage_pct;
+                    if (sensor.vram_total_bytes > 0) {
+                        latest_metrics.vram_usage_pct =
+                            100.0 * static_cast<double>(sensor.vram_used_bytes) /
+                            static_cast<double>(sensor.vram_total_bytes);
+                    }
+                    snapshot = latest_metrics;
+                    cb_copy = metrics_cb;
                 }
-                if (metrics_cb) metrics_cb(latest_metrics);
+                // Invoke callback outside mutex to avoid blocking the worker thread
+                if (cb_copy) cb_copy(snapshot);
             }
 
             check_timeout(start);
@@ -894,21 +902,28 @@ struct GpuEngine::Impl {
 
             {
                 auto sensor = utils::gpu_query_sensors(active_vendor, selected_device_idx);
-                std::lock_guard<std::mutex> lock(metrics_mutex);
-                latest_metrics.fps = fps;
-                latest_metrics.draw_calls = frame.draw_calls;
-                latest_metrics.artifact_count = total_artifacts;
-                latest_metrics.shader_level = static_cast<int>(shader_complexity) + 1;
-                latest_metrics.gpu_usage_pct = static_cast<double>(current_load * 100.0f);
-                latest_metrics.elapsed_secs = elapsed;
-                latest_metrics.temperature = sensor.temperature_c;
-                latest_metrics.power_watts = sensor.power_watts;
-                if (sensor.vram_total_bytes > 0) {
-                    latest_metrics.vram_usage_pct =
-                        100.0 * static_cast<double>(sensor.vram_used_bytes) /
-                        static_cast<double>(sensor.vram_total_bytes);
+                GpuMetrics snapshot;
+                MetricsCallback cb_copy;
+                {
+                    std::lock_guard<std::mutex> lock(metrics_mutex);
+                    latest_metrics.fps = fps;
+                    latest_metrics.draw_calls = frame.draw_calls;
+                    latest_metrics.artifact_count = total_artifacts;
+                    latest_metrics.shader_level = static_cast<int>(shader_complexity) + 1;
+                    latest_metrics.gpu_usage_pct = static_cast<double>(current_load * 100.0f);
+                    latest_metrics.elapsed_secs = elapsed;
+                    latest_metrics.temperature = sensor.temperature_c;
+                    latest_metrics.power_watts = sensor.power_watts;
+                    if (sensor.vram_total_bytes > 0) {
+                        latest_metrics.vram_usage_pct =
+                            100.0 * static_cast<double>(sensor.vram_used_bytes) /
+                            static_cast<double>(sensor.vram_total_bytes);
+                    }
+                    snapshot = latest_metrics;
+                    cb_copy = metrics_cb;
                 }
-                if (metrics_cb) metrics_cb(latest_metrics);
+                // Invoke callback outside mutex to avoid blocking the worker thread
+                if (cb_copy) cb_copy(snapshot);
             }
 
             check_timeout(start);
@@ -923,40 +938,52 @@ struct GpuEngine::Impl {
     void update_metrics(double gflops, double elapsed) {
         auto sensor = utils::gpu_query_sensors(active_vendor, selected_device_idx);
 
-        std::lock_guard<std::mutex> lock(metrics_mutex);
-        latest_metrics.gflops = gflops;
-        latest_metrics.elapsed_secs = elapsed;
-        latest_metrics.temperature = sensor.temperature_c;
-        latest_metrics.power_watts = sensor.power_watts;
-        latest_metrics.gpu_usage_pct = sensor.gpu_usage_pct;
-        if (sensor.vram_total_bytes > 0) {
-            latest_metrics.vram_usage_pct =
-                100.0 * static_cast<double>(sensor.vram_used_bytes) /
-                static_cast<double>(sensor.vram_total_bytes);
+        GpuMetrics snapshot;
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex);
+            latest_metrics.gflops = gflops;
+            latest_metrics.elapsed_secs = elapsed;
+            latest_metrics.temperature = sensor.temperature_c;
+            latest_metrics.power_watts = sensor.power_watts;
+            latest_metrics.gpu_usage_pct = sensor.gpu_usage_pct;
+            if (sensor.vram_total_bytes > 0) {
+                latest_metrics.vram_usage_pct =
+                    100.0 * static_cast<double>(sensor.vram_used_bytes) /
+                    static_cast<double>(sensor.vram_total_bytes);
+            }
+            snapshot = latest_metrics;
+            cb_copy = metrics_cb;
         }
-
-        if (metrics_cb) {
-            metrics_cb(latest_metrics);
+        // Invoke callback outside mutex to avoid blocking the worker thread
+        if (cb_copy) {
+            cb_copy(snapshot);
         }
     }
 
     void update_vram_metrics(uint64_t errors, double elapsed) {
         auto sensor = utils::gpu_query_sensors(active_vendor, selected_device_idx);
 
-        std::lock_guard<std::mutex> lock(metrics_mutex);
-        latest_metrics.vram_errors = errors;
-        latest_metrics.elapsed_secs = elapsed;
-        latest_metrics.temperature = sensor.temperature_c;
-        latest_metrics.power_watts = sensor.power_watts;
-        latest_metrics.gpu_usage_pct = sensor.gpu_usage_pct;
-        if (sensor.vram_total_bytes > 0) {
-            latest_metrics.vram_usage_pct =
-                100.0 * static_cast<double>(sensor.vram_used_bytes) /
-                static_cast<double>(sensor.vram_total_bytes);
+        GpuMetrics snapshot;
+        MetricsCallback cb_copy;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex);
+            latest_metrics.vram_errors = errors;
+            latest_metrics.elapsed_secs = elapsed;
+            latest_metrics.temperature = sensor.temperature_c;
+            latest_metrics.power_watts = sensor.power_watts;
+            latest_metrics.gpu_usage_pct = sensor.gpu_usage_pct;
+            if (sensor.vram_total_bytes > 0) {
+                latest_metrics.vram_usage_pct =
+                    100.0 * static_cast<double>(sensor.vram_used_bytes) /
+                    static_cast<double>(sensor.vram_total_bytes);
+            }
+            snapshot = latest_metrics;
+            cb_copy = metrics_cb;
         }
-
-        if (metrics_cb) {
-            metrics_cb(latest_metrics);
+        // Invoke callback outside mutex to avoid blocking the worker thread
+        if (cb_copy) {
+            cb_copy(snapshot);
         }
     }
 
@@ -1080,11 +1107,14 @@ void GpuEngine::select_gpu(int index) {
     impl_->do_select_gpu(index);
 }
 
-void GpuEngine::start(GpuStressMode mode, int duration_secs) {
-    if (impl_->running.load()) return;
+bool GpuEngine::start(GpuStressMode mode, int duration_secs) {
+    if (impl_->running.load()) {
+        impl_->last_error = "GPU test already running";
+        return false;
+    }
     if (!impl_->initialized) {
-        std::cerr << "[GPU] Engine not initialized" << std::endl;
-        return;
+        impl_->last_error = "GPU engine not initialized. No GPU backend available.";
+        return false;
     }
 
     // Check if the appropriate backend is available for the requested mode
@@ -1094,20 +1124,21 @@ void GpuEngine::start(GpuStressMode mode, int duration_secs) {
     if (is_vulkan_mode) {
 #ifdef OCCT_HAS_VULKAN
         if (!impl_->vulkan_available) {
-            std::cerr << "[GPU] Vulkan not available - cannot start Vulkan stress test" << std::endl;
-            return;
+            impl_->last_error = "Vulkan is not available on this system.";
+            return false;
         }
 #else
-        std::cerr << "[GPU] Vulkan support not compiled in" << std::endl;
-        return;
+        impl_->last_error = "Vulkan support was not compiled into this build.";
+        return false;
 #endif
     } else {
         if (!impl_->opencl_available) {
-            std::cerr << "[GPU] OpenCL not available - cannot start GPU stress test" << std::endl;
-            return;
+            impl_->last_error = "OpenCL is not available. Please install GPU drivers with OpenCL support.";
+            return false;
         }
     }
 
+    impl_->last_error.clear();
     impl_->running.store(true);
     impl_->current_mode = mode;
     impl_->duration_secs = duration_secs;
@@ -1121,6 +1152,7 @@ void GpuEngine::start(GpuStressMode mode, int duration_secs) {
     impl_->worker_thread = std::thread([this, mode]() {
         impl_->worker_main(mode);
     });
+    return true;
 }
 
 void GpuEngine::stop() {
@@ -1137,6 +1169,10 @@ bool GpuEngine::is_running() const {
 GpuMetrics GpuEngine::get_metrics() const {
     std::lock_guard<std::mutex> lock(impl_->metrics_mutex);
     return impl_->latest_metrics;
+}
+
+std::string GpuEngine::last_error() const {
+    return impl_->last_error;
 }
 
 void GpuEngine::set_metrics_callback(MetricsCallback cb) {

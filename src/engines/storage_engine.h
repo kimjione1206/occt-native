@@ -27,6 +27,8 @@ struct StorageMetrics {
     double latency_us  = 0.0;   // Average latency in microseconds
     double elapsed_secs = 0.0;
     double progress_pct = 0.0;  // 0 ~ 100
+    int error_count = 0;
+    std::string state;    // "preparing", "testing", "completed", "error"
 };
 
 class StorageEngine : public IEngine {
@@ -42,8 +44,11 @@ public:
     /// @param path          Directory/file path for test file.
     /// @param file_size_mb  Total test file size in MB.
     /// @param queue_depth   Number of concurrent I/O threads.
-    void start(StorageMode mode, const std::string& path,
+    bool start(StorageMode mode, const std::string& path,
                uint64_t file_size_mb = 2048, int queue_depth = 4);
+
+    /// Returns last error message if start failed.
+    std::string last_error() const;
 
     void stop() override;
     bool is_running() const override;
@@ -83,6 +88,7 @@ private:
     std::mutex cb_mutex_;
 
     std::string test_file_path_;
+    std::string last_error_;
 };
 
 } // namespace occt

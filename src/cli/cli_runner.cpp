@@ -226,7 +226,10 @@ int CliRunner::run_test(const CliOptions& opts)
         });
 
         std::string path = opts.storage_path.isEmpty() ? QDir::tempPath().toStdString() : opts.storage_path.toStdString();
-        engine.start(smode, path, opts.file_size_mb, opts.queue_depth);
+        if (!engine.start(smode, path, opts.file_size_mb, opts.queue_depth)) {
+            emit_json("error", "storage", QVariant(QString::fromStdString(engine.last_error())));
+            return 2;
+        }
 
         while (engine.is_running()) {
             QThread::msleep(500);
@@ -287,7 +290,10 @@ int CliRunner::run_test(const CliOptions& opts)
             emit_json("metric", "gpu", QJsonDocument(metric).toVariant());
         });
 
-        engine.start(gmode, duration);
+        if (!engine.start(gmode, duration)) {
+            emit_json("error", "gpu", QVariant(QString::fromStdString(engine.last_error())));
+            return 2;
+        }
 
         while (engine.is_running()) {
             QThread::msleep(500);

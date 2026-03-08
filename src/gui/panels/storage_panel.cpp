@@ -6,6 +6,7 @@
 #include <QVBoxLayout>
 #include <QStandardPaths>
 #include <QDir>
+#include <QMessageBox>
 
 namespace occt { namespace gui {
 
@@ -207,7 +208,13 @@ void StoragePanel::onStartStopClicked()
         QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
         std::string testPath = tempPath.toStdString();
 
-        engine_->start(mode, testPath, 256, queueDepth);
+        if (!engine_->start(mode, testPath, 256, queueDepth)) {
+            QMessageBox::warning(this, "Storage Test Error",
+                QString::fromStdString(engine_->last_error()));
+            isRunning_ = false;
+            startStopBtn_->setText("Start Test");
+            return;
+        }
         monitorTimer_->start(500);
 
         emit testStartRequested(modeCombo_->currentText(), directIOCheck_->isChecked(), queueDepthSpin_->value());
@@ -243,6 +250,14 @@ void StoragePanel::updateMonitoring()
     }
 
     auto m = engine_->get_metrics();
+
+    if (m.state == "preparing") {
+        // Show file preparation progress
+        iopsLabel_->setText("Preparing...");
+        double prep_pct = m.progress_pct;
+        throughputLabel_->setText(QString("Creating test file: %1%").arg(prep_pct, 0, 'f', 0));
+        return;
+    }
 
     // Update IOPS
     iopsLabel_->setText(QString::number(m.iops, 'f', 0));

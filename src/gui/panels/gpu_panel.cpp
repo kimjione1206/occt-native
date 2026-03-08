@@ -4,6 +4,7 @@
 #include "../../engines/gpu_engine.h"
 
 #include <QHBoxLayout>
+#include <QMessageBox>
 #include <QVBoxLayout>
 
 namespace occt { namespace gui {
@@ -12,8 +13,13 @@ GpuPanel::GpuPanel(QWidget* parent)
     : QWidget(parent)
     , engine_(std::make_unique<GpuEngine>())
 {
-    engine_->initialize();
+    bool gpuOk = engine_->initialize();
     setupUi();
+    if (!gpuOk) {
+        startStopBtn_->setEnabled(false);
+        startStopBtn_->setText("GPU Not Available");
+        startStopBtn_->setStyleSheet("background-color: #555; color: #999;");
+    }
 
     monitorTimer_ = new QTimer(this);
     connect(monitorTimer_, &QTimer::timeout, this, &GpuPanel::updateMonitoring);
@@ -305,7 +311,18 @@ void GpuPanel::onStartStopClicked()
         int durationSec = durationCombo_->currentData().toInt();
 
         // Start engine
-        engine_->start(mode, durationSec);
+        if (!engine_->start(mode, durationSec)) {
+            QMessageBox::warning(this, "GPU Test Error",
+                QString::fromStdString(engine_->last_error()));
+            isRunning_ = false;
+            startStopBtn_->setText("Start Test");
+            startStopBtn_->setStyleSheet(
+                "QPushButton { background-color: #27AE60; color: white; border: none; "
+                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
+                "QPushButton:hover { background-color: #2ECC71; }"
+            );
+            return;
+        }
 
         // Start monitoring timer
         monitorTimer_->start(500);
