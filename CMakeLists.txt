@@ -178,9 +178,13 @@ add_executable(occt_native
 )
 
 # Windows: WIN32_EXECUTABLE로 콘솔 창 숨기기 (Release)
-set_target_properties(occt_native PROPERTIES
-    WIN32_EXECUTABLE $<AND:$<PLATFORM_ID:Windows>,$<CONFIG:Release>>
-)
+# CI/테스트 시 -DOCCT_CONSOLE=ON으로 콘솔 서브시스템 강제 (PowerShell 동기 실행 필요)
+option(OCCT_CONSOLE "Force console subsystem for CI/CLI testing" OFF)
+if(NOT OCCT_CONSOLE)
+    set_target_properties(occt_native PROPERTIES
+        WIN32_EXECUTABLE $<AND:$<PLATFORM_ID:Windows>,$<CONFIG:Release>>
+    )
+endif()
 
 target_include_directories(occt_native PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"

@@ -74,6 +74,7 @@ jobs:
           -A x64
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
           -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
+          -DOCCT_CONSOLE=ON
 
       # ── Build ─────────────────────────────────────────────────────────
       - name: Build
