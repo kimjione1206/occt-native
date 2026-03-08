@@ -204,6 +204,33 @@ jobs:
           if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
           Write-Host "PASS: CPU SSE 2-thread test completed"
 
+      - name: "B9: CPU Cache Only Test (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Cache Only Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode cache --duration 10
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Cache Only test completed"
+
+      - name: "B10: CPU Large Data Set Test (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Large Data Set Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode large_data --duration 10
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Large Data Set test completed"
+
+      - name: "B11: CPU Core Cycling Load Pattern (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Core Cycling Load Pattern Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode avx2 --load-pattern core_cycling --duration 10
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Core Cycling test completed"
+
       # ════════════════════════════════════════════════════════════════════
       # C. RAM Tests (all 6 patterns, 1 pass, 5% memory)
       # ════════════════════════════════════════════════════════════════════
@@ -310,6 +337,42 @@ jobs:
           & $exe --cli --test storage --mode mixed --file-size 64 --queue-depth 8 --duration 10
           if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
           Write-Host "PASS: Storage Mixed I/O test completed"
+
+      - name: "D6: Storage Verify Sequential (64MB)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Verify Sequential Test ==="
+          & $exe --cli --test storage --mode verify_seq --file-size 64 --duration 15
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Verify Sequential test completed"
+
+      - name: "D7: Storage Verify Random (64MB)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Verify Random Test ==="
+          & $exe --cli --test storage --mode verify_rand --file-size 64 --duration 15
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Verify Random test completed"
+
+      - name: "D8: Storage Fill & Verify (64MB)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Fill & Verify Test ==="
+          & $exe --cli --test storage --mode fill_verify --file-size 64 --duration 20
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Fill & Verify test completed"
+
+      - name: "D9: Storage Butterfly Verify (64MB)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Butterfly Verify Test ==="
+          & $exe --cli --test storage --mode butterfly --file-size 64 --duration 15
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Butterfly Verify test completed"
 
       # ════════════════════════════════════════════════════════════════════
       # E. Benchmark Tests
@@ -592,18 +655,20 @@ jobs:
           Write-Host "|  A. Basic Tests (2)                                       |"
           Write-Host "|     A1: --version    A2: --help                           |"
           Write-Host "|                                                           |"
-          Write-Host "|  B. CPU Tests (8)                                         |"
+          Write-Host "|  B. CPU Tests (11)                                        |"
           Write-Host "|     B1: AVX2         B2: SSE          B3: Linpack         |"
           Write-Host "|     B4: Prime        B5: AVX-512*     B6: All Modes       |"
-          Write-Host "|     B7: Variable LP  B8: SSE 2-thread                     |"
+          Write-Host "|     B7: Variable LP  B8: SSE 2-thread B9: Cache Only      |"
+          Write-Host "|     B10: Large Data  B11: Core Cycling                    |"
           Write-Host "|                                                           |"
           Write-Host "|  C. RAM Tests (6)                                         |"
           Write-Host "|     C1: March C-     C2: Walking Ones C3: Walking Zeros   |"
           Write-Host "|     C4: Checkerboard C5: Random       C6: Bandwidth       |"
           Write-Host "|                                                           |"
-          Write-Host "|  D. Storage Tests (5)                                     |"
+          Write-Host "|  D. Storage Tests (9)                                     |"
           Write-Host "|     D1: Seq Write    D2: Seq Read     D3: Random Write    |"
-          Write-Host "|     D4: Random Read  D5: Mixed I/O                        |"
+          Write-Host "|     D4: Random Read  D5: Mixed I/O    D6: Verify Seq      |"
+          Write-Host "|     D7: Verify Rand  D8: Fill&Verify  D9: Butterfly       |"
           Write-Host "|                                                           |"
           Write-Host "|  E. Benchmark Tests (3)                                   |"
           Write-Host "|     E1: Cache        E2: Memory       E3: All             |"
@@ -635,5 +700,5 @@ jobs:
           Write-Host "|                                                           |"
           Write-Host "|  * AVX-512 accepts exit code 0 or 2 (runner may lack it)  |"
           Write-Host "|                                                           |"
-          Write-Host "|  Total: 39 test steps                                     |"
+          Write-Host "|  Total: 46 test steps                                     |"
           Write-Host "+==========================================================+"
