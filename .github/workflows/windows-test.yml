@@ -167,12 +167,13 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== CPU AVX-512 Test (10 seconds) ==="
           & $exe --cli --test cpu --mode avx512 --duration 10
-          if ($LASTEXITCODE -eq 0) {
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+          if ($ec -eq 0) {
             Write-Host "PASS: CPU AVX-512 test completed successfully"
-          } elseif ($LASTEXITCODE -eq 2) {
+          } elseif ($ec -eq 2) {
             Write-Host "PASS: AVX-512 not available on this runner (exit code 2 is acceptable)"
           } else {
-            Write-Error "Test failed with unexpected exit code: $LASTEXITCODE"
+            Write-Error "Test failed with unexpected exit code: $ec"
             exit 1
           }
 
@@ -351,7 +352,7 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== GPU Test (expect graceful failure, exit code 2) ==="
           & $exe --cli --test gpu --mode matrix_mul --duration 5
-          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if ($ec -ne 2) { Write-Error "Expected exit code 2, got: $ec"; exit 1 }
           Write-Host "Correctly failed with exit code 2"
 
       # ════════════════════════════════════════════════════════════════════
@@ -364,7 +365,7 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== PSU Test (expect graceful failure, exit code 2) ==="
           & $exe --cli --test psu --mode steady --duration 5
-          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if ($ec -ne 2) { Write-Error "Expected exit code 2, got: $ec"; exit 1 }
           Write-Host "Correctly failed with exit code 2"
 
       # ════════════════════════════════════════════════════════════════════
@@ -452,7 +453,7 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Certificate Invalid Tier Test (expect exit code 2) ==="
           & $exe --cli --cert-tier invalid_tier
-          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if ($ec -ne 2) { Write-Error "Expected exit code 2, got: $ec"; exit 1 }
           Write-Host "Correctly failed with exit code 2"
 
       # ════════════════════════════════════════════════════════════════════
@@ -465,7 +466,7 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== CLI with no --test argument (expect exit code 2) ==="
           & $exe --cli
-          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if ($ec -ne 2) { Write-Error "Expected exit code 2, got: $ec"; exit 1 }
           Write-Host "Correctly failed with exit code 2"
 
       - name: "L2: Unknown Test Type (expect failure)"
@@ -474,7 +475,7 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Unknown test type 'foobar' (expect exit code 2) ==="
           & $exe --cli --test foobar
-          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if ($ec -ne 2) { Write-Error "Expected exit code 2, got: $ec"; exit 1 }
           Write-Host "Correctly failed with exit code 2"
 
       - name: "L3: Invalid Cert Tier (expect failure)"
@@ -483,7 +484,7 @@ jobs:
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Invalid cert tier 'unobtanium' (expect exit code 2) ==="
           & $exe --cli --cert-tier unobtanium
-          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if ($ec -ne 2) { Write-Error "Expected exit code 2, got: $ec"; exit 1 }
           Write-Host "Correctly failed with exit code 2"
 
       # ════════════════════════════════════════════════════════════════════
