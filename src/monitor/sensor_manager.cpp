@@ -17,6 +17,7 @@
     #pragma comment(lib, "oleaut32.lib")
 #elif defined(__linux__)
     #include <dirent.h>
+    #include <dlfcn.h>
     #include <fcntl.h>
     #include <unistd.h>
     #include <fstream>
