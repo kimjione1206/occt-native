@@ -18,6 +18,37 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # ── Cleanup old artifacts (keep max 5) ──────────────────────────
+      - name: Cleanup Old Artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const MAX_KEEP = 4; // keep 4, new upload makes 5
+            const artifactName = 'cli-test-results';
+            const { data } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: artifactName,
+              per_page: 100,
+            });
+            const artifacts = data.artifacts
+              .filter(a => !a.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            if (artifacts.length >= MAX_KEEP) {
+              const toDelete = artifacts.slice(MAX_KEEP);
+              for (const art of toDelete) {
+                console.log(`Deleting artifact: ${art.name} #${art.id} (${art.created_at})`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: art.id,
+                });
+              }
+              console.log(`Deleted ${toDelete.length} old artifact(s).`);
+            } else {
+              console.log(`Only ${artifacts.length} artifact(s) found. No cleanup needed.`);
+            }
+
       # ── Checkout ──────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
@@ -213,7 +244,7 @@ jobs:
           name: cli-test-results
           path: test_results/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 90
 
       # ── Test Summary ──────────────────────────────────────────────────
       - name: Test Summary
