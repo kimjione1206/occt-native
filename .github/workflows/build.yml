@@ -26,6 +26,7 @@ jobs:
         host: windows
         target: desktop
         arch: win64_msvc2022_64
+        modules: 'qtcharts'
         cache: true
 
     - name: Configure CMake
