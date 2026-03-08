@@ -413,12 +413,14 @@ jobs:
       - name: "F1: GPU Test (no GPU in CI, accept 0 or 2)"
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== GPU Test (no GPU hardware, accept exit 0 or 2) ==="
           & $exe --cli --test gpu --mode matrix_mul --duration 5
           $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
           if ($ec -eq 0 -or $ec -eq 2) {
             Write-Host "PASS: GPU test handled gracefully (exit code: $ec)"
+            exit 0
           } else {
             Write-Error "GPU test failed unexpectedly with exit code: $ec"
             exit 1
@@ -431,12 +433,14 @@ jobs:
       - name: "G1: PSU Test (no GPU in CI, accept 0 or 2)"
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== PSU Test (no GPU hardware, accept exit 0 or 2) ==="
           & $exe --cli --test psu --mode steady --duration 5
           $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
           if ($ec -eq 0 -or $ec -eq 2) {
             Write-Host "PASS: PSU test handled gracefully (exit code: $ec)"
+            exit 0
           } else {
             Write-Error "PSU test failed unexpectedly with exit code: $ec"
             exit 1
