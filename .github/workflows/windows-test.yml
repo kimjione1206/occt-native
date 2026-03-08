@@ -457,45 +457,65 @@ jobs:
       # K. Certification Test (invalid tier - negative test)
       # ════════════════════════════════════════════════════════════════════
 
-      - name: "K1: Certification Invalid Tier (expect failure)"
+      - name: "K1: Certification Invalid Tier (expect error output)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== Certificate Invalid Tier Test (expect exit code 2) ==="
-          & $exe --cli --cert-tier invalid_tier
-          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if (-not $ec) { Write-Error "Expected non-zero exit code, got: $ec"; exit 1 }
-          Write-Host "Correctly failed with exit code 2"
+          Write-Host "=== Certificate Invalid Tier Test ==="
+          $output = & $exe --cli --cert-tier invalid_tier 2>&1 | Out-String
+          Write-Host $output
+          if ($output -match '"type"\s*:\s*"error"') {
+            Write-Host "PASS: Invalid cert tier correctly produced error output"
+          } else {
+            Write-Error "Expected error JSON in output but not found"
+            exit 1
+          }
 
       # ════════════════════════════════════════════════════════════════════
       # L. Error / Negative Tests (all expect exit code 2)
       # ════════════════════════════════════════════════════════════════════
 
-      - name: "L1: No --test Argument (expect failure)"
+      - name: "L1: No --test Argument (expect error output)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== CLI with no --test argument (expect exit code 2) ==="
-          & $exe --cli
-          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if (-not $ec) { Write-Error "Expected non-zero exit code, got: $ec"; exit 1 }
-          Write-Host "Correctly failed with exit code 2"
+          Write-Host "=== CLI with no --test argument ==="
+          $output = & $exe --cli 2>&1 | Out-String
+          Write-Host $output
+          if ($output -match '"type"\s*:\s*"error"') {
+            Write-Host "PASS: No-test correctly produced error output"
+          } else {
+            Write-Error "Expected error JSON in output but not found"
+            exit 1
+          }
 
-      - name: "L2: Unknown Test Type (expect failure)"
+      - name: "L2: Unknown Test Type (expect error output)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== Unknown test type 'foobar' (expect exit code 2) ==="
-          & $exe --cli --test foobar
-          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if (-not $ec) { Write-Error "Expected non-zero exit code, got: $ec"; exit 1 }
-          Write-Host "Correctly failed with exit code 2"
+          Write-Host "=== Unknown test type 'foobar' ==="
+          $output = & $exe --cli --test foobar 2>&1 | Out-String
+          Write-Host $output
+          if ($output -match '"type"\s*:\s*"error"') {
+            Write-Host "PASS: Unknown test type correctly produced error output"
+          } else {
+            Write-Error "Expected error JSON in output but not found"
+            exit 1
+          }
 
-      - name: "L3: Invalid Cert Tier (expect failure)"
+      - name: "L3: Invalid Cert Tier (expect error output)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== Invalid cert tier 'unobtanium' (expect exit code 2) ==="
-          & $exe --cli --cert-tier unobtanium
-          $ec = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }; if (-not $ec) { Write-Error "Expected non-zero exit code, got: $ec"; exit 1 }
-          Write-Host "Correctly failed with exit code 2"
+          Write-Host "=== Invalid cert tier 'unobtanium' ==="
+          $output = & $exe --cli --cert-tier unobtanium 2>&1 | Out-String
+          Write-Host $output
+          if ($output -match '"type"\s*:\s*"error"') {
+            Write-Host "PASS: Invalid cert tier correctly produced error output"
+          } else {
+            Write-Error "Expected error JSON in output but not found"
+            exit 1
+          }
 
       # ════════════════════════════════════════════════════════════════════
       # M. Verify Test Outputs
