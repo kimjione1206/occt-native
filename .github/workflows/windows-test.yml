@@ -468,12 +468,12 @@ jobs:
           if ($output -match '"type"\s*:\s*"error"') {
             Write-Host "PASS: Invalid cert tier correctly produced error output"
           } else {
-            Write-Error "Expected error JSON in output but not found"
-            exit 1
+            Write-Error "Expected error JSON in output but not found"; exit 1
           }
+          exit 0
 
       # ════════════════════════════════════════════════════════════════════
-      # L. Error / Negative Tests (all expect exit code 2)
+      # L. Error / Negative Tests (verify error JSON output)
       # ════════════════════════════════════════════════════════════════════
 
       - name: "L1: No --test Argument (expect error output)"
@@ -487,9 +487,9 @@ jobs:
           if ($output -match '"type"\s*:\s*"error"') {
             Write-Host "PASS: No-test correctly produced error output"
           } else {
-            Write-Error "Expected error JSON in output but not found"
-            exit 1
+            Write-Error "Expected error JSON in output but not found"; exit 1
           }
+          exit 0
 
       - name: "L2: Unknown Test Type (expect error output)"
         shell: pwsh
@@ -502,9 +502,9 @@ jobs:
           if ($output -match '"type"\s*:\s*"error"') {
             Write-Host "PASS: Unknown test type correctly produced error output"
           } else {
-            Write-Error "Expected error JSON in output but not found"
-            exit 1
+            Write-Error "Expected error JSON in output but not found"; exit 1
           }
+          exit 0
 
       - name: "L3: Invalid Cert Tier (expect error output)"
         shell: pwsh
@@ -517,9 +517,9 @@ jobs:
           if ($output -match '"type"\s*:\s*"error"') {
             Write-Host "PASS: Invalid cert tier correctly produced error output"
           } else {
-            Write-Error "Expected error JSON in output but not found"
-            exit 1
+            Write-Error "Expected error JSON in output but not found"; exit 1
           }
+          exit 0
 
       # ════════════════════════════════════════════════════════════════════
       # M. Verify Test Outputs
