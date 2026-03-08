@@ -11,24 +11,19 @@
         #define CPUID(info, leaf) __cpuid(info, leaf)
         #define CPUIDEX(info, leaf, sub) __cpuidex(info, leaf, sub)
     #elif defined(__GNUC__) || defined(__clang__)
-        #include <cpuid.h>
         static inline void cpuid_impl(int info[4], int leaf) {
-            unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
-            __get_cpuid(static_cast<unsigned int>(leaf), &eax, &ebx, &ecx, &edx);
-            info[0] = static_cast<int>(eax);
-            info[1] = static_cast<int>(ebx);
-            info[2] = static_cast<int>(ecx);
-            info[3] = static_cast<int>(edx);
+            __asm__ __volatile__ (
+                "cpuid"
+                : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3])
+                : "a"(leaf), "c"(0)
+            );
         }
         static inline void cpuidex_impl(int info[4], int leaf, int sub) {
-            unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
-            __get_cpuid_count(static_cast<unsigned int>(leaf),
-                              static_cast<unsigned int>(sub),
-                              &eax, &ebx, &ecx, &edx);
-            info[0] = static_cast<int>(eax);
-            info[1] = static_cast<int>(ebx);
-            info[2] = static_cast<int>(ecx);
-            info[3] = static_cast<int>(edx);
+            __asm__ __volatile__ (
+                "cpuid"
+                : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3])
+                : "a"(leaf), "c"(sub)
+            );
         }
         #define CPUID(info, leaf) cpuid_impl(info, leaf)
         #define CPUIDEX(info, leaf, sub) cpuidex_impl(info, leaf, sub)
