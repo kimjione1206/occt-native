@@ -88,182 +88,507 @@ jobs:
             exit 1
           }
 
-      # ── CLI Help Test ─────────────────────────────────────────────────
-      - name: CLI Help Test
+      # ── Create output directories ────────────────────────────────────
+      - name: Create Output Directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path test_results | Out-Null
+          Write-Host "Created test_results directory"
+
+      # ════════════════════════════════════════════════════════════════════
+      # A. Basic Tests
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "A1: Version Flag"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== CLI Help Output ==="
+          Write-Host "=== --version ==="
+          & $exe --cli --version
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: --version returned exit code 0"
+
+      - name: "A2: Help Flag"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== --help ==="
           & $exe --cli --help
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: --help returned exit code 0"
 
-      # ── CPU Benchmark Test (short) ────────────────────────────────────
-      - name: CPU Stress Test (10s, AVX2)
+      # ════════════════════════════════════════════════════════════════════
+      # B. CPU Tests (all 6 modes + load-pattern + fixed threads)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "B1: CPU AVX2 Test (10s, auto threads)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== CPU AVX2 FMA Test (10 seconds) ==="
+          Write-Host "=== CPU AVX2 FMA Test (10 seconds, auto threads) ==="
           & $exe --cli --test cpu --mode avx2 --threads auto --duration 10
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU AVX2 test completed"
 
-      # ── CPU SSE Test ──────────────────────────────────────────────────
-      - name: CPU SSE Test (10s)
+      - name: "B2: CPU SSE Test (10s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== CPU SSE Test (10 seconds) ==="
           & $exe --cli --test cpu --mode sse --duration 10
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU SSE test completed"
 
-      # ── CPU Linpack Test ──────────────────────────────────────────────
-      - name: CPU Linpack Test (10s)
+      - name: "B3: CPU Linpack Test (10s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== CPU Linpack Test (10 seconds) ==="
           & $exe --cli --test cpu --mode linpack --duration 10
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Linpack test completed"
 
-      # ── CPU Prime Test ────────────────────────────────────────────────
-      - name: CPU Prime Test (10s)
+      - name: "B4: CPU Prime Test (10s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== CPU Prime Test (10 seconds) ==="
           & $exe --cli --test cpu --mode prime --duration 10
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Prime test completed"
 
-      # ── CPU Variable Load Pattern Test ────────────────────────────────
-      - name: CPU Variable Load Pattern Test (10s)
+      - name: "B5: CPU AVX-512 Test (10s, may not be available)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== CPU Variable Pattern Test (10 seconds) ==="
-          & $exe --cli --test cpu --mode avx2 --load-pattern variable --duration 10
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          Write-Host "=== CPU AVX-512 Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode avx512 --duration 10
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "PASS: CPU AVX-512 test completed successfully"
+          } elseif ($LASTEXITCODE -eq 2) {
+            Write-Host "PASS: AVX-512 not available on this runner (exit code 2 is acceptable)"
+          } else {
+            Write-Error "Test failed with unexpected exit code: $LASTEXITCODE"
+            exit 1
+          }
 
-      # ── RAM March C- Test ─────────────────────────────────────────────
-      - name: RAM March C- Test (1 pass, 5%)
+      - name: "B6: CPU All Modes Test (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU All Modes Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode all --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU All Modes test completed"
+
+      - name: "B7: CPU Variable Load Pattern (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Variable Load Pattern Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode avx2 --load-pattern variable --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Variable Load Pattern test completed"
+
+      - name: "B8: CPU SSE Fixed 2 Threads (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU SSE Test (10 seconds, 2 threads) ==="
+          & $exe --cli --test cpu --mode sse --threads 2 --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU SSE 2-thread test completed"
+
+      # ════════════════════════════════════════════════════════════════════
+      # C. RAM Tests (all 6 patterns, 1 pass, 5% memory)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "C1: RAM March C- Test (1 pass, 5%)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== RAM March C- Test ==="
           & $exe --cli --test ram --mode march_c --memory 5 --passes 1
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: RAM March C- test completed"
 
-      # ── RAM Walking Ones Test ─────────────────────────────────────────
-      - name: RAM Walking Ones Test (1 pass, 5%)
+      - name: "C2: RAM Walking Ones Test (1 pass, 5%)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== RAM Walking Ones Test ==="
           & $exe --cli --test ram --mode walking --memory 5 --passes 1
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: RAM Walking Ones test completed"
 
-      # ── RAM Bandwidth Test ────────────────────────────────────────────
-      - name: RAM Bandwidth Test (1 pass, 5%)
+      - name: "C3: RAM Walking Zeros Test (1 pass, 5%)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM Walking Zeros Test ==="
+          & $exe --cli --test ram --mode walking_zeros --memory 5 --passes 1
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: RAM Walking Zeros test completed"
+
+      - name: "C4: RAM Checkerboard Test (1 pass, 5%)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM Checkerboard Test ==="
+          & $exe --cli --test ram --mode checkerboard --memory 5 --passes 1
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: RAM Checkerboard test completed"
+
+      - name: "C5: RAM Random Test (1 pass, 5%)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM Random Test ==="
+          & $exe --cli --test ram --mode random --memory 5 --passes 1
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: RAM Random test completed"
+
+      - name: "C6: RAM Bandwidth Test (1 pass, 5%)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== RAM Bandwidth Test ==="
           & $exe --cli --test ram --mode bandwidth --memory 5 --passes 1
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: RAM Bandwidth test completed"
 
-      # ── Storage Sequential Write Test ─────────────────────────────────
-      - name: Storage Sequential Write Test (10s)
+      # ════════════════════════════════════════════════════════════════════
+      # D. Storage Tests (all 5 modes, 64MB, 10s)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "D1: Storage Sequential Write (64MB, 10s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== Storage Seq Write Test (10 seconds) ==="
-          & $exe --cli --test storage --mode write --duration 10 --file-size 64 --queue-depth 4
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          Write-Host "=== Storage Sequential Write Test ==="
+          & $exe --cli --test storage --mode write --file-size 64 --queue-depth 4 --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Sequential Write test completed"
 
-      # ── Storage Sequential Read Test ──────────────────────────────────
-      - name: Storage Sequential Read Test (10s)
+      - name: "D2: Storage Sequential Read (64MB, 10s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== Storage Seq Read Test (10 seconds) ==="
-          & $exe --cli --test storage --mode read --duration 10 --file-size 64 --queue-depth 4
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          Write-Host "=== Storage Sequential Read Test ==="
+          & $exe --cli --test storage --mode read --file-size 64 --queue-depth 4 --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Sequential Read test completed"
 
-      # ── Storage Random I/O Test ───────────────────────────────────────
-      - name: Storage Random Read/Write Test (10s)
+      - name: "D3: Storage Random Write (64MB, 10s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== Storage Random R/W Test (10 seconds) ==="
-          & $exe --cli --test storage --mode mixed --duration 10 --file-size 64 --queue-depth 8
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          Write-Host "=== Storage Random Write Test ==="
+          & $exe --cli --test storage --mode random_write --file-size 64 --queue-depth 4 --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Random Write test completed"
 
-      # ── Benchmark Cache Test ──────────────────────────────────────────
-      - name: Cache Benchmark Test
+      - name: "D4: Storage Random Read (64MB, 10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Random Read Test ==="
+          & $exe --cli --test storage --mode random_read --file-size 64 --queue-depth 4 --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Random Read test completed"
+
+      - name: "D5: Storage Mixed I/O (64MB, QD8, 10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage Mixed I/O Test ==="
+          & $exe --cli --test storage --mode mixed --file-size 64 --queue-depth 8 --duration 10
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Storage Mixed I/O test completed"
+
+      # ════════════════════════════════════════════════════════════════════
+      # E. Benchmark Tests
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "E1: Benchmark Cache"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Cache Benchmark ==="
           & $exe --cli --test benchmark --mode cache
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Cache Benchmark completed"
 
-      # ── Benchmark Memory Test ─────────────────────────────────────────
-      - name: Memory Benchmark Test
+      - name: "E2: Benchmark Memory"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Memory Benchmark ==="
           & $exe --cli --test benchmark --mode memory
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Memory Benchmark completed"
 
-      # ── Monitor-Only Test ─────────────────────────────────────────────
-      - name: Monitor-Only Sensor Test (5s)
+      - name: "E3: Benchmark All"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== All Benchmarks ==="
+          & $exe --cli --test benchmark --mode all
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: All Benchmarks completed"
+
+      # ════════════════════════════════════════════════════════════════════
+      # F. GPU Graceful Failure Test (CI has no GPU)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "F1: GPU Graceful Failure (no GPU in CI)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== GPU Test (expect graceful failure, exit code 2) ==="
+          & $exe --cli --test gpu --mode matrix_mul --duration 5
+          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          Write-Host "Correctly failed with exit code 2"
+
+      # ════════════════════════════════════════════════════════════════════
+      # G. PSU Graceful Failure Test (depends on GPU)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "G1: PSU Graceful Failure (no GPU in CI)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== PSU Test (expect graceful failure, exit code 2) ==="
+          & $exe --cli --test psu --mode steady --duration 5
+          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          Write-Host "Correctly failed with exit code 2"
+
+      # ════════════════════════════════════════════════════════════════════
+      # H. Monitor Tests
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "H1: Monitor-Only (5s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Monitor-Only Test (5 seconds) ==="
           & $exe --cli --monitor-only --duration 5
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Monitor-Only test completed"
 
-      # ── Report Generation Test ────────────────────────────────────────
-      - name: Report Generation Test (JSON)
+      - name: "H2: Monitor-Only with CSV Output (5s)"
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
-          Write-Host "=== CPU Test with JSON Report ==="
-          & $exe --cli --test cpu --mode sse --duration 5 --report json --output test_results
-          if (Test-Path "test_results") {
-            Write-Host "=== Report files generated ==="
-            Get-ChildItem test_results -Recurse | ForEach-Object { Write-Host "  $($_.Name) ($([math]::Round($_.Length / 1KB, 1)) KB)" }
-          }
-          Write-Host "=== Exit code: $LASTEXITCODE ==="
+          Write-Host "=== Monitor-Only Test with CSV Output (5 seconds) ==="
+          & $exe --cli --monitor-only --duration 5 --output monitor_output.csv
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Monitor-Only CSV test completed"
 
-      # ── Upload test results ───────────────────────────────────────────
+      # ════════════════════════════════════════════════════════════════════
+      # I. Report Format Tests (short CPU SSE 5s)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "I1: Report JSON Format"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU SSE Test with JSON Report ==="
+          & $exe --cli --test cpu --mode sse --duration 5 --report json --output test_results
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: JSON report generation completed"
+
+      - name: "I2: Report HTML Format"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU SSE Test with HTML Report ==="
+          & $exe --cli --test cpu --mode sse --duration 5 --report html --output test_results
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: HTML report generation completed"
+
+      - name: "I3: Report CSV Format"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU SSE Test with CSV Report ==="
+          & $exe --cli --test cpu --mode sse --duration 5 --report csv --output test_results
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CSV report generation completed"
+
+      - name: "I4: Direct CSV Shorthand (--csv)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU SSE Test with --csv shorthand ==="
+          & $exe --cli --test cpu --mode sse --duration 5 --csv test_results/direct.csv
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Direct CSV shorthand completed"
+
+      # ════════════════════════════════════════════════════════════════════
+      # J. Schedule Test
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "J1: Schedule Test (ci-schedule.json)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Schedule Test ==="
+          & $exe --cli --schedule tests/ci-schedule.json
+          if ($LASTEXITCODE -ne 0) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: Schedule test completed"
+
+      # ════════════════════════════════════════════════════════════════════
+      # K. Certification Test (invalid tier - negative test)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "K1: Certification Invalid Tier (expect failure)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Certificate Invalid Tier Test (expect exit code 2) ==="
+          & $exe --cli --cert-tier invalid_tier
+          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          Write-Host "Correctly failed with exit code 2"
+
+      # ════════════════════════════════════════════════════════════════════
+      # L. Error / Negative Tests (all expect exit code 2)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "L1: No --test Argument (expect failure)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CLI with no --test argument (expect exit code 2) ==="
+          & $exe --cli
+          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          Write-Host "Correctly failed with exit code 2"
+
+      - name: "L2: Unknown Test Type (expect failure)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Unknown test type 'foobar' (expect exit code 2) ==="
+          & $exe --cli --test foobar
+          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          Write-Host "Correctly failed with exit code 2"
+
+      - name: "L3: Invalid Cert Tier (expect failure)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Invalid cert tier 'unobtanium' (expect exit code 2) ==="
+          & $exe --cli --cert-tier unobtanium
+          if ($LASTEXITCODE -ne 2) { Write-Error "Expected exit code 2, got: $LASTEXITCODE"; exit 1 }
+          Write-Host "Correctly failed with exit code 2"
+
+      # ════════════════════════════════════════════════════════════════════
+      # M. Verify Test Outputs
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "M1: Verify test_results Directory Contains Files"
+        shell: pwsh
+        run: |
+          Write-Host "=== Verifying test_results directory ==="
+          if (-not (Test-Path "test_results")) {
+            Write-Error "test_results directory does not exist!"
+            exit 1
+          }
+          $files = Get-ChildItem -Path test_results -Recurse -File
+          if ($files.Count -eq 0) {
+            Write-Error "test_results directory is empty - no report files generated!"
+            exit 1
+          }
+          Write-Host "Found $($files.Count) file(s) in test_results:"
+          $files | ForEach-Object {
+            Write-Host "  $($_.Name) ($([math]::Round($_.Length / 1KB, 1)) KB)"
+          }
+          Write-Host "PASS: test_results directory verified"
+
+      - name: "M2: Verify monitor_output.csv Exists"
+        shell: pwsh
+        run: |
+          Write-Host "=== Verifying monitor_output.csv ==="
+          if (-not (Test-Path "monitor_output.csv")) {
+            Write-Error "monitor_output.csv does not exist!"
+            exit 1
+          }
+          $size = (Get-Item "monitor_output.csv").Length
+          Write-Host "monitor_output.csv size: $([math]::Round($size / 1KB, 1)) KB"
+          Write-Host "PASS: monitor_output.csv verified"
+
+      # ════════════════════════════════════════════════════════════════════
+      # Upload & Summary (always run)
+      # ════════════════════════════════════════════════════════════════════
+
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cli-test-results
-          path: test_results/
+          path: |
+            test_results/
+            monitor_output.csv
           if-no-files-found: warn
           retention-days: 90
 
-      # ── Test Summary ──────────────────────────────────────────────────
       - name: Test Summary
         if: always()
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "╔══════════════════════════════════════════════╗"
-          Write-Host "║  Windows CLI Test Summary                    ║"
-          Write-Host "╠══════════════════════════════════════════════╣"
-          Write-Host "║  Platform:   Windows x64 (GitHub Actions)    ║"
-          Write-Host "║  Compiler:   MSVC 2022                       ║"
-          Write-Host "║  Qt Version: ${{ env.QT_VERSION }}                       ║"
-          Write-Host "║                                              ║"
-          Write-Host "║  Tests executed:                             ║"
-          Write-Host "║    CPU:  AVX2, SSE, Linpack, Prime, Variable ║"
-          Write-Host "║    RAM:  March C-, Walking Ones, Bandwidth   ║"
-          Write-Host "║    Storage: Seq W, Seq R, Random Mixed       ║"
-          Write-Host "║    Benchmark: Cache, Memory                  ║"
-          Write-Host "║    Monitor: Sensor polling                   ║"
-          Write-Host "║    Report: JSON generation                   ║"
-          Write-Host "╚══════════════════════════════════════════════╝"
+          Write-Host "+==========================================================+"
+          Write-Host "|  Windows CLI Comprehensive Test Summary                   |"
+          Write-Host "+==========================================================+"
+          Write-Host "|  Platform:   Windows x64 (GitHub Actions)                 |"
+          Write-Host "|  Compiler:   MSVC 2022                                    |"
+          Write-Host "|  Qt Version: ${{ env.QT_VERSION }}                                    |"
+          Write-Host "|                                                           |"
+          Write-Host "|  A. Basic Tests (2)                                       |"
+          Write-Host "|     A1: --version    A2: --help                           |"
+          Write-Host "|                                                           |"
+          Write-Host "|  B. CPU Tests (8)                                         |"
+          Write-Host "|     B1: AVX2         B2: SSE          B3: Linpack         |"
+          Write-Host "|     B4: Prime        B5: AVX-512*     B6: All Modes       |"
+          Write-Host "|     B7: Variable LP  B8: SSE 2-thread                     |"
+          Write-Host "|                                                           |"
+          Write-Host "|  C. RAM Tests (6)                                         |"
+          Write-Host "|     C1: March C-     C2: Walking Ones C3: Walking Zeros   |"
+          Write-Host "|     C4: Checkerboard C5: Random       C6: Bandwidth       |"
+          Write-Host "|                                                           |"
+          Write-Host "|  D. Storage Tests (5)                                     |"
+          Write-Host "|     D1: Seq Write    D2: Seq Read     D3: Random Write    |"
+          Write-Host "|     D4: Random Read  D5: Mixed I/O                        |"
+          Write-Host "|                                                           |"
+          Write-Host "|  E. Benchmark Tests (3)                                   |"
+          Write-Host "|     E1: Cache        E2: Memory       E3: All             |"
+          Write-Host "|                                                           |"
+          Write-Host "|  F. GPU Graceful Failure (1)                              |"
+          Write-Host "|     F1: matrix_mul (expect exit 2)                        |"
+          Write-Host "|                                                           |"
+          Write-Host "|  G. PSU Graceful Failure (1)                              |"
+          Write-Host "|     G1: steady (expect exit 2)                            |"
+          Write-Host "|                                                           |"
+          Write-Host "|  H. Monitor Tests (2)                                     |"
+          Write-Host "|     H1: Monitor-Only H2: Monitor CSV                      |"
+          Write-Host "|                                                           |"
+          Write-Host "|  I. Report Format Tests (4)                               |"
+          Write-Host "|     I1: JSON         I2: HTML         I3: CSV             |"
+          Write-Host "|     I4: --csv shorthand                                   |"
+          Write-Host "|                                                           |"
+          Write-Host "|  J. Schedule Test (1)                                     |"
+          Write-Host "|     J1: ci-schedule.json                                  |"
+          Write-Host "|                                                           |"
+          Write-Host "|  K. Certification Test (1)                                |"
+          Write-Host "|     K1: Invalid tier (expect exit 2)                      |"
+          Write-Host "|                                                           |"
+          Write-Host "|  L. Error/Negative Tests (3)                              |"
+          Write-Host "|     L1: No --test    L2: Unknown type L3: Bad cert tier   |"
+          Write-Host "|                                                           |"
+          Write-Host "|  M. Verify Outputs (2)                                    |"
+          Write-Host "|     M1: test_results dir  M2: monitor_output.csv          |"
+          Write-Host "|                                                           |"
+          Write-Host "|  * AVX-512 accepts exit code 0 or 2 (runner may lack it)  |"
+          Write-Host "|                                                           |"
+          Write-Host "|  Total: 39 test steps                                     |"
+          Write-Host "+==========================================================+"
