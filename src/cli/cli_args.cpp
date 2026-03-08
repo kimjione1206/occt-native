@@ -126,6 +126,32 @@ CliOptions parse_args(int argc, char** argv)
             opts.list_certs = true;
         } else if (std::strcmp(arg, "--leaderboard") == 0 && i + 1 < argc) {
             opts.leaderboard_cmd = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--backend") == 0 && i + 1 < argc) {
+            opts.backend = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--intensity") == 0 && i + 1 < argc) {
+            opts.intensity = QString::fromUtf8(argv[++i]);
+        } else if (std::strcmp(arg, "--block-size") == 0 && i + 1 < argc) {
+            ++i;
+            int bs = 0;
+            if (parse_int("--block-size", argv[i], bs, 4, 4096)) {
+                // Validate allowed values
+                if (bs == 4 || bs == 8 || bs == 64 || bs == 128 || bs == 1024 || bs == 4096) {
+                    opts.block_size_kb = bs;
+                } else {
+                    std::fprintf(stderr, "Error: --block-size must be one of: 4, 8, 64, 128, 1024, 4096\n");
+                }
+            }
+        } else if (std::strcmp(arg, "--direct-io") == 0) {
+            opts.direct_io = true;
+        } else if (std::strcmp(arg, "--cpu-temp-limit") == 0 && i + 1 < argc) {
+            parse_int("--cpu-temp-limit", argv[++i], opts.cpu_temp_limit, 50, 120);
+        } else if (std::strcmp(arg, "--gpu-temp-limit") == 0 && i + 1 < argc) {
+            parse_int("--gpu-temp-limit", argv[++i], opts.gpu_temp_limit, 50, 120);
+        } else if (std::strcmp(arg, "--power-limit") == 0 && i + 1 < argc) {
+            parse_int("--power-limit", argv[++i], opts.power_limit, 50, 2000);
+        } else if (std::strcmp(arg, "--preset") == 0 && i + 1 < argc) {
+            opts.preset = QString::fromUtf8(argv[++i]);
+            opts.test = "schedule";
         } else if (std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0) {
             opts.show_help = true;
         } else if (std::strcmp(arg, "--version") == 0 || std::strcmp(arg, "-v") == 0) {
@@ -164,6 +190,7 @@ void print_usage()
         "CPU options:\n"
         "  --threads <N|auto>     Number of threads (0 or auto = all cores)\n"
         "  --load-pattern <p>     Load pattern: steady (default), variable\n"
+        "  --intensity <level>    Intensity: normal, extreme (default: extreme)\n"
         "  Modes: avx2, avx512, sse, linpack, prime, all\n"
         "\n"
         "RAM options:\n"
@@ -175,10 +202,14 @@ void print_usage()
         "  --file-size <MB>       Test file size in MB (default: 256)\n"
         "  --queue-depth <N>      I/O queue depth (default: 4)\n"
         "  --storage-path <path>  Test directory (default: system temp)\n"
-        "  Modes: write (default), read, random_write, random_read, mixed\n"
+        "  --block-size <KB>      Block size in KB: 4, 8, 64, 128, 1024, 4096 (default: 4)\n"
+        "  --direct-io            Use direct I/O (bypass OS file cache)\n"
+        "  Modes: write (default), read, random_write, random_read, mixed,\n"
+        "         verify_seq, verify_rand, fill_verify, butterfly\n"
         "\n"
         "GPU options:\n"
         "  --gpu-index <N>        GPU index (default: auto)\n"
+        "  --backend <type>       GPU backend: opencl, vulkan (default: auto)\n"
         "  --shader-complexity <N> Vulkan shader complexity 1-5 (default: 1)\n"
         "  --adaptive-mode <m>    Adaptive mode: variable (default), switch, coil_whine\n"
         "  --coil-freq <Hz>       Coil whine frequency 10-15000 Hz (default: 100, 0 = sweep)\n"
@@ -194,6 +225,7 @@ void print_usage()
         "\n"
         "Schedule options:\n"
         "  --schedule <file>      Run a JSON schedule file\n"
+        "  --preset <name>        Run a preset schedule: quick, standard, extreme, oc_validation\n"
         "  --stop-on-error        Stop schedule on first error\n"
         "\n"
         "Certificate options:\n"
@@ -205,6 +237,11 @@ void print_usage()
         "\n"
         "Monitoring options:\n"
         "  --whea                 Enable WHEA hardware error monitoring (Windows only)\n"
+        "\n"
+        "Safety thresholds:\n"
+        "  --cpu-temp-limit <C>   CPU temperature limit in degrees C (default: 95)\n"
+        "  --gpu-temp-limit <C>   GPU temperature limit in degrees C (default: 90)\n"
+        "  --power-limit <W>      Power limit in Watts (default: 300)\n"
         "\n"
         "Report comparison (P4-3):\n"
         "  --compare <a> <b>      Compare two JSON report files\n"
@@ -237,6 +274,10 @@ void print_usage()
         "  occt_native --cli --monitor-only --csv sensors.csv --duration 60\n"
         "  occt_native --cli --test combined --engines cpu,gpu --duration 60 --stop-on-error\n"
         "  occt_native --cli --test cpu --whea --duration 300\n"
+        "  occt_native --cli --test cpu --intensity normal --cpu-temp-limit 85\n"
+        "  occt_native --cli --test gpu --backend vulkan --gpu-temp-limit 80\n"
+        "  occt_native --cli --test storage --mode fill_verify --block-size 1024 --direct-io\n"
+        "  occt_native --cli --preset quick --stop-on-error\n"
     );
 }
 

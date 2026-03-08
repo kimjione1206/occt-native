@@ -138,8 +138,33 @@ QFrame* GpuPanel::createSettingsSection()
     vulkanLayout->addWidget(adaptiveLabel);
 
     adaptiveModeCombo_ = new QComboBox(vulkanSettingsWidget_);
-    adaptiveModeCombo_->addItems({"Variable (+5%/20s)", "Switch (20%/80%)"});
+    adaptiveModeCombo_->addItems({"Variable (+5%/20s)", "Switch (20%/80%)", "Coil Whine"});
     vulkanLayout->addWidget(adaptiveModeCombo_);
+
+    // Coil Whine Frequency (for COIL_WHINE adaptive mode)
+    coilFreqLabel_ = new QLabel("Coil Frequency (Hz)", vulkanSettingsWidget_);
+    coilFreqLabel_->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    vulkanLayout->addWidget(coilFreqLabel_);
+
+    auto* coilFreqRow = new QHBoxLayout();
+    coilFreqSpin_ = new QSpinBox(vulkanSettingsWidget_);
+    coilFreqSpin_->setRange(0, 15000);
+    coilFreqSpin_->setValue(100);
+    coilFreqSpin_->setSuffix(" Hz");
+    coilFreqSpin_->setToolTip("0 = sweep mode");
+    coilFreqRow->addWidget(coilFreqSpin_);
+    vulkanLayout->addLayout(coilFreqRow);
+
+    // Initially hidden -- only shown when adaptive mode is "Coil Whine"
+    coilFreqLabel_->setVisible(false);
+    coilFreqSpin_->setVisible(false);
+
+    connect(adaptiveModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int index) {
+        bool isCoilWhine = (index == 2);
+        coilFreqLabel_->setVisible(isCoilWhine);
+        coilFreqSpin_->setVisible(isCoilWhine);
+    });
 
     // Multi-GPU checkbox
     multiGpuCheck_ = new QCheckBox("Multi-GPU (all detected GPUs)", vulkanSettingsWidget_);
@@ -302,9 +327,16 @@ void GpuPanel::onStartStopClicked()
         if (mode == GpuStressMode::VULKAN_3D || mode == GpuStressMode::VULKAN_ADAPTIVE) {
             engine_->set_shader_complexity(shaderComplexitySlider_->value());
             if (mode == GpuStressMode::VULKAN_ADAPTIVE) {
-                AdaptiveMode am = (adaptiveModeCombo_->currentIndex() == 1)
-                    ? AdaptiveMode::SWITCH : AdaptiveMode::VARIABLE;
+                AdaptiveMode am;
+                switch (adaptiveModeCombo_->currentIndex()) {
+                    case 1:  am = AdaptiveMode::SWITCH;     break;
+                    case 2:  am = AdaptiveMode::COIL_WHINE; break;
+                    default: am = AdaptiveMode::VARIABLE;    break;
+                }
                 engine_->set_adaptive_mode(am);
+                if (am == AdaptiveMode::COIL_WHINE) {
+                    engine_->set_coil_whine_freq(static_cast<float>(coilFreqSpin_->value()));
+                }
             }
         }
 

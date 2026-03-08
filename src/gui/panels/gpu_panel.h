@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QTimer>
 #include <QFrame>
 #include <QProgressBar>
@@ -53,6 +54,8 @@ private:
     QSlider* shaderComplexitySlider_ = nullptr;
     QLabel* shaderComplexityLabel_ = nullptr;
     QComboBox* adaptiveModeCombo_ = nullptr;
+    QSpinBox* coilFreqSpin_ = nullptr;
+    QLabel* coilFreqLabel_ = nullptr;
     QCheckBox* multiGpuCheck_ = nullptr;
     QWidget* vulkanSettingsWidget_ = nullptr;
 

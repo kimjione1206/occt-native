@@ -35,6 +35,7 @@ private slots:
     void onProgressChanged(double pct);
     void onSaveSchedule();
     void onLoadSchedule();
+    void updateModeCombo();
 
 private:
     void setupUi();

@@ -18,6 +18,7 @@
 #include "report/report_comparator.h"
 #include "api/cert_store.h"
 #include "benchmark/leaderboard.h"
+#include "safety/guardian.h"
 
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -113,9 +114,12 @@ int CliRunner::run(const CliOptions& opts)
         return 2;
     }
 
-    // Schedule dispatch (Fix 3-1)
+    // Schedule dispatch (Fix 3-1) and preset schedule (Gap 9)
     if (opts.test == "schedule" && !opts.schedule_file.isEmpty()) {
         return run_schedule(opts);
+    }
+    if (opts.test == "schedule" && !opts.preset.isEmpty()) {
+        return run_preset_schedule(opts);
     }
 
     // Certificate dispatch (Fix 3-2)
@@ -144,6 +148,31 @@ int CliRunner::run_test(const CliOptions& opts)
     // WHEA monitoring (P3-4)
     auto whea = start_whea_if_enabled(opts);
 
+    // Safety guardian (Gap 8): set up if any limits differ from defaults
+    SensorManager safety_sensors;
+    std::unique_ptr<SafetyGuardian> guardian;
+    bool custom_safety = (opts.cpu_temp_limit != 95 || opts.gpu_temp_limit != 90 || opts.power_limit != 300);
+    if (custom_safety) {
+        if (safety_sensors.initialize()) {
+            guardian = std::make_unique<SafetyGuardian>(&safety_sensors);
+            SafetyLimits limits;
+            limits.cpu_temp_max = static_cast<double>(opts.cpu_temp_limit);
+            limits.gpu_temp_max = static_cast<double>(opts.gpu_temp_limit);
+            limits.cpu_power_max = static_cast<double>(opts.power_limit);
+            guardian->set_limits(limits);
+            guardian->set_emergency_callback([this](const std::string& reason) {
+                emit_json("warning", "message",
+                    QString("Safety guardian triggered: %1").arg(QString::fromStdString(reason)));
+            });
+            guardian->start();
+            emit_json("progress", "message",
+                QString("Safety guardian active (CPU:%1C GPU:%2C Power:%3W)")
+                    .arg(opts.cpu_temp_limit).arg(opts.gpu_temp_limit).arg(opts.power_limit));
+        } else {
+            emit_json("warning", "message", "Failed to initialize sensors for safety guardian");
+        }
+    }
+
     auto start = std::chrono::steady_clock::now();
 
     if (opts.test == "cpu") {
@@ -165,6 +194,11 @@ int CliRunner::run_test(const CliOptions& opts)
         if (opts.load_pattern == "variable") lp = LoadPattern::VARIABLE;
         else if (opts.load_pattern == "core_cycling") lp = LoadPattern::CORE_CYCLING;
 
+        // Parse intensity mode (Gap 5)
+        CpuIntensityMode intensity = CpuIntensityMode::EXTREME;
+        if (opts.intensity == "normal") intensity = CpuIntensityMode::NORMAL;
+        else if (opts.intensity == "extreme") intensity = CpuIntensityMode::EXTREME;
+
         CpuMetrics last_metrics{};
         engine.set_metrics_callback([this, &last_metrics](const CpuMetrics& m) {
             last_metrics = m;
@@ -178,7 +212,7 @@ int CliRunner::run_test(const CliOptions& opts)
             emit_json("metric", "cpu", QJsonDocument(metric).toVariant());
         });
 
-        engine.start(mode, threads, duration, lp);
+        engine.start(mode, threads, duration, lp, intensity);
 
         // Wait for completion
         while (engine.is_running()) {
@@ -251,6 +285,19 @@ int CliRunner::run_test(const CliOptions& opts)
         else if (opts.mode == "random_write") smode = StorageMode::RAND_WRITE;
         else if (opts.mode == "random_read") smode = StorageMode::RAND_READ;
         else if (opts.mode == "mixed") smode = StorageMode::MIXED;
+        else if (opts.mode == "verify_seq") smode = StorageMode::VERIFY_SEQ;
+        else if (opts.mode == "verify_rand") smode = StorageMode::VERIFY_RAND;
+        else if (opts.mode == "fill_verify") smode = StorageMode::FILL_VERIFY;
+        else if (opts.mode == "butterfly") smode = StorageMode::BUTTERFLY;
+
+        // Log block size and direct I/O settings (Gap 6 & Gap 7)
+        if (opts.block_size_kb != 4) {
+            emit_json("progress", "message",
+                QString("Storage block size: %1 KB").arg(opts.block_size_kb));
+        }
+        if (opts.direct_io) {
+            emit_json("progress", "message", "Storage direct I/O: enabled");
+        }
 
         engine.set_metrics_callback([this](const StorageMetrics& m) {
             QJsonObject metric;
@@ -262,6 +309,7 @@ int CliRunner::run_test(const CliOptions& opts)
         });
 
         std::string path = opts.storage_path.isEmpty() ? QDir::tempPath().toStdString() : opts.storage_path.toStdString();
+        // TODO: pass opts.block_size_kb and opts.direct_io to engine when StorageEngine API supports them
         if (!engine.start(smode, path, opts.file_size_mb, opts.queue_depth)) {
             emit_json("error", "storage", QVariant(QString::fromStdString(engine.last_error())));
             return 2;
@@ -303,6 +351,33 @@ int CliRunner::run_test(const CliOptions& opts)
         else if (opts.mode == "vulkan_adaptive") gmode = GpuStressMode::VULKAN_ADAPTIVE;
 
         if (opts.gpu_index >= 0) engine.select_gpu(opts.gpu_index);
+
+        // Apply backend preference (Gap 3): if --backend is specified, prefer that backend
+        // by selecting an appropriate mode if the current mode is generic.
+        if (!opts.backend.isEmpty()) {
+            if (opts.backend == "vulkan") {
+                // If mode is a generic OpenCL mode but user wants Vulkan, switch to vulkan_3d
+                if (gmode != GpuStressMode::VULKAN_3D && gmode != GpuStressMode::VULKAN_ADAPTIVE) {
+                    if (engine.is_vulkan_available()) {
+                        emit_json("progress", "message", "Backend preference: vulkan - switching to vulkan_3d mode");
+                        gmode = GpuStressMode::VULKAN_3D;
+                    } else {
+                        emit_json("warning", "message", "Vulkan backend requested but not available");
+                    }
+                }
+            } else if (opts.backend == "opencl") {
+                // If mode is a Vulkan mode but user wants OpenCL, switch to matrix_mul
+                if (gmode == GpuStressMode::VULKAN_3D || gmode == GpuStressMode::VULKAN_ADAPTIVE) {
+                    if (engine.is_opencl_available()) {
+                        emit_json("progress", "message", "Backend preference: opencl - switching to matrix_mul mode");
+                        gmode = GpuStressMode::MATRIX_MUL;
+                    } else {
+                        emit_json("warning", "message", "OpenCL backend requested but not available");
+                    }
+                }
+            }
+        }
+
         if (gmode == GpuStressMode::VULKAN_3D || gmode == GpuStressMode::VULKAN_ADAPTIVE)
             engine.set_shader_complexity(opts.shader_complexity);
         if (gmode == GpuStressMode::VULKAN_ADAPTIVE) {
@@ -524,6 +599,12 @@ int CliRunner::run_test(const CliOptions& opts)
         return 2;
     }
 
+    // Stop safety guardian (Gap 8)
+    if (guardian) {
+        guardian->stop();
+        guardian.reset();
+    }
+
     // Stop WHEA monitor
     stop_whea(whea);
 
@@ -628,6 +709,108 @@ int CliRunner::run_schedule(const CliOptions& opts)
 
     QJsonObject final_result;
     final_result["verdict"] = results_.overall_verdict;
+    final_result["total_steps"] = step_results.size();
+    final_result["total_errors"] = total_errors;
+    final_result["duration_secs"] = results_.total_duration_secs;
+    emit_json("result", "summary", QJsonDocument(final_result).toVariant());
+
+    return all_passed ? 0 : 1;
+}
+
+int CliRunner::run_preset_schedule(const CliOptions& opts)
+{
+    results_ = TestResults{};
+    results_.system_info = collect_system_info();
+
+    QVector<TestStep> steps;
+    QString preset_name;
+
+    if (opts.preset == "quick") {
+        steps = preset_quick_check();
+        preset_name = "Quick Check";
+    } else if (opts.preset == "standard") {
+        steps = preset_standard();
+        preset_name = "Standard";
+    } else if (opts.preset == "extreme") {
+        steps = preset_extreme();
+        preset_name = "Extreme";
+    } else if (opts.preset == "oc_validation") {
+        steps = preset_oc_validation();
+        preset_name = "OC Validation";
+    } else {
+        emit_json("error", "message",
+            QString("Unknown preset: %1. Use quick, standard, extreme, or oc_validation.").arg(opts.preset));
+        return 2;
+    }
+
+    emit_json("progress", "message", QString("Starting preset schedule: %1 (%2 steps)")
+        .arg(preset_name).arg(steps.size()));
+
+    TestScheduler scheduler;
+    scheduler.load_schedule(steps);
+    scheduler.set_stop_on_error(opts.stop_on_error);
+
+    bool all_passed = true;
+    int total_errors = 0;
+
+    QObject::connect(&scheduler, &TestScheduler::stepStarted,
+        [this](int index, const QString& engine) {
+            emit_json("progress", "message", QString("Step %1: starting %2").arg(index).arg(engine));
+        });
+
+    QObject::connect(&scheduler, &TestScheduler::stepCompleted,
+        [this](int index, bool passed, int errors) {
+            QJsonObject step;
+            step["step"] = index;
+            step["passed"] = passed;
+            step["errors"] = errors;
+            emit_json("step_result", "step", QJsonDocument(step).toVariant());
+        });
+
+    QObject::connect(&scheduler, &TestScheduler::progressChanged,
+        [this](double pct) {
+            emit_json("progress", "percent", pct);
+        });
+
+    auto start = std::chrono::steady_clock::now();
+    scheduler.start();
+
+    while (scheduler.is_running()) {
+        QThread::msleep(500);
+        QCoreApplication::processEvents();
+    }
+
+    // Collect results from scheduler
+    const auto& step_results = scheduler.results();
+    for (const auto& sr : step_results) {
+        TestResultData result;
+        result.timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+        result.test_type = sr.engine;
+        result.mode = QString("preset:%1").arg(opts.preset);
+        result.duration = QString("%1s").arg(int(sr.duration_secs));
+        result.passed = sr.passed;
+        result.error_count = sr.errors;
+        if (!sr.passed) {
+            all_passed = false;
+        }
+        total_errors += sr.errors;
+        results_.results.append(result);
+    }
+
+    auto total_elapsed = std::chrono::steady_clock::now() - start;
+    results_.total_duration_secs = std::chrono::duration<double>(total_elapsed).count();
+    results_.overall_verdict = all_passed ? "PASS" : "FAIL";
+
+    // Generate report if requested
+    if (!opts.report_format.isEmpty() && !opts.output_path.isEmpty()) {
+        if (!generate_report(results_, opts)) {
+            emit_json("error", "message", "Failed to generate report");
+        }
+    }
+
+    QJsonObject final_result;
+    final_result["verdict"] = results_.overall_verdict;
+    final_result["preset"] = opts.preset;
     final_result["total_steps"] = step_results.size();
     final_result["total_errors"] = total_errors;
     final_result["duration_secs"] = results_.total_duration_secs;

@@ -22,6 +22,7 @@ SchedulePanel::SchedulePanel(QWidget* parent)
     connect(scheduler_, &TestScheduler::progressChanged, this, &SchedulePanel::onProgressChanged);
 
     setupUi();
+    updateModeCombo();
 }
 
 void SchedulePanel::setupUi()
@@ -112,12 +113,14 @@ QFrame* SchedulePanel::createCustomSection()
     // Add step controls
     auto* addRow = new QHBoxLayout();
     engineCombo_ = new QComboBox(frame);
-    engineCombo_->addItems({"CPU", "GPU", "RAM", "Storage"});
+    engineCombo_->addItems({"CPU", "GPU", "RAM", "Storage", "PSU"});
     addRow->addWidget(engineCombo_);
 
     modeCombo_ = new QComboBox(frame);
-    modeCombo_->addItems({"Default", "AVX2", "SSE", "Linpack", "Matrix", "VRAM", "March", "Random", "Mixed"});
     addRow->addWidget(modeCombo_);
+
+    connect(engineCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SchedulePanel::updateModeCombo);
 
     durationSpin_ = new QSpinBox(frame);
     durationSpin_->setRange(1, 720);
@@ -314,14 +317,18 @@ void SchedulePanel::onAddStep()
     TestStep step;
     step.engine = engineCombo_->currentText().toLower();
 
-    QString mode = modeCombo_->currentText().toLower();
-    if (mode == "default") {
-        // Set engine-appropriate default
-        if (step.engine == "cpu") mode = "avx2";
-        else if (step.engine == "gpu") mode = "matrix";
-        else if (step.engine == "ram") mode = "march";
-        else if (step.engine == "storage") mode = "mixed";
+    // Map display name to internal mode string
+    QString displayMode = modeCombo_->currentText();
+    QString mode;
+
+    // Use the data stored in the combo item (set by updateModeCombo)
+    QString data = modeCombo_->currentData().toString();
+    if (!data.isEmpty()) {
+        mode = data;
+    } else {
+        mode = displayMode.toLower();
     }
+
     step.settings["mode"] = mode;
     step.duration_secs = durationSpin_->value() * 60;
     step.parallel_with_next = parallelCheck_->isChecked();
@@ -460,6 +467,60 @@ void SchedulePanel::onLoadSchedule()
         scheduler_->load_from_json(path);
         presetCombo_->setCurrentIndex(0); // Custom
         updateStepList();
+    }
+}
+
+void SchedulePanel::updateModeCombo()
+{
+    modeCombo_->clear();
+
+    QString engine = engineCombo_->currentText().toLower();
+
+    // Each entry: display name -> internal mode string
+    if (engine == "cpu") {
+        modeCombo_->addItem("Default (AVX2)", "avx2");
+        modeCombo_->addItem("AVX2", "avx2");
+        modeCombo_->addItem("AVX-512", "avx512");
+        modeCombo_->addItem("SSE", "sse");
+        modeCombo_->addItem("Linpack", "linpack");
+        modeCombo_->addItem("Prime", "prime");
+        modeCombo_->addItem("Cache Only", "cache_only");
+        modeCombo_->addItem("Large Data Set", "large_data_set");
+        modeCombo_->addItem("All", "all");
+    } else if (engine == "gpu") {
+        modeCombo_->addItem("Default (Matrix Multiply)", "matrix_mul");
+        modeCombo_->addItem("Matrix Multiply", "matrix_mul");
+        modeCombo_->addItem("FP64 Matrix", "fp64_matrix");
+        modeCombo_->addItem("FMA", "fma");
+        modeCombo_->addItem("Trigonometric", "trigonometric");
+        modeCombo_->addItem("VRAM", "vram");
+        modeCombo_->addItem("Mixed", "mixed");
+        modeCombo_->addItem("Vulkan 3D", "vulkan_3d");
+        modeCombo_->addItem("Vulkan Adaptive", "vulkan_adaptive");
+    } else if (engine == "ram") {
+        modeCombo_->addItem("Default (March C-)", "march_c");
+        modeCombo_->addItem("March C-", "march_c");
+        modeCombo_->addItem("Walking Ones", "walking_ones");
+        modeCombo_->addItem("Walking Zeros", "walking_zeros");
+        modeCombo_->addItem("Checkerboard", "checkerboard");
+        modeCombo_->addItem("Random", "random");
+        modeCombo_->addItem("Bandwidth", "bandwidth");
+    } else if (engine == "storage") {
+        modeCombo_->addItem("Default (Write)", "write");
+        modeCombo_->addItem("Sequential Write", "sequential_write");
+        modeCombo_->addItem("Sequential Read", "sequential_read");
+        modeCombo_->addItem("Random Write", "random_write");
+        modeCombo_->addItem("Random Read", "random_read");
+        modeCombo_->addItem("Mixed", "mixed");
+        modeCombo_->addItem("Verify Sequential", "verify_sequential");
+        modeCombo_->addItem("Verify Random", "verify_random");
+        modeCombo_->addItem("Fill & Verify", "fill_verify");
+        modeCombo_->addItem("Butterfly", "butterfly");
+    } else if (engine == "psu") {
+        modeCombo_->addItem("Default (Steady)", "steady");
+        modeCombo_->addItem("Steady", "steady");
+        modeCombo_->addItem("Spike", "spike");
+        modeCombo_->addItem("Ramp", "ramp");
     }
 }
 

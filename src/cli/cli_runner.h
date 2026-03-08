@@ -26,6 +26,9 @@ private:
     /// Run a scheduled test sequence.
     int run_schedule(const CliOptions& opts);
 
+    /// Run a preset schedule (quick, standard, extreme, oc_validation).
+    int run_preset_schedule(const CliOptions& opts);
+
     /// Run a certification tier.
     int run_certificate(const CliOptions& opts);
 

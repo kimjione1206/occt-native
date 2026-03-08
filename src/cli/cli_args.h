@@ -62,6 +62,26 @@ struct CliOptions {
 
     // Leaderboard (P4-5)
     QString leaderboard_cmd;  // "show" or "submit"
+
+    // GPU backend (Gap 3)
+    QString backend;          // "opencl" or "vulkan" (empty = auto)
+
+    // CPU intensity (Gap 5)
+    QString intensity;        // "normal" or "extreme" (empty = extreme)
+
+    // Storage block size (Gap 6)
+    int block_size_kb = 4;    // Block size in KB (4, 8, 64, 128, 1024, 4096)
+
+    // Storage direct I/O (Gap 7)
+    bool direct_io = false;   // Use O_DIRECT / FILE_FLAG_NO_BUFFERING
+
+    // Safety thresholds (Gap 8)
+    int cpu_temp_limit = 95;  // CPU temperature limit in degrees C
+    int gpu_temp_limit = 90;  // GPU temperature limit in degrees C
+    int power_limit = 300;    // Power limit in Watts
+
+    // Schedule preset (Gap 9)
+    QString preset;           // "quick", "standard", "extreme", "oc_validation"
 };
 
 /// Parse command-line arguments into CliOptions.
