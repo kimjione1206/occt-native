@@ -177,6 +177,7 @@ int CliRunner::run_test(const CliOptions& opts)
 
     if (opts.test == "cpu") {
         CpuEngine engine;
+        if (guardian) guardian->register_engine(&engine);
 
         CpuStressMode mode = CpuStressMode::AVX2_FMA;
         if (opts.mode == "linpack") mode = CpuStressMode::LINPACK;
@@ -212,6 +213,11 @@ int CliRunner::run_test(const CliOptions& opts)
             emit_json("metric", "cpu", QJsonDocument(metric).toVariant());
         });
 
+        // Pass SensorManager for temperature/power readings if available
+        if (custom_safety && guardian) {
+            engine.set_sensor_manager(&safety_sensors);
+        }
+
         engine.start(mode, threads, duration, lp, intensity);
 
         // Wait for completion
@@ -237,6 +243,7 @@ int CliRunner::run_test(const CliOptions& opts)
 
     } else if (opts.test == "ram") {
         RamEngine engine;
+        if (guardian) guardian->register_engine(&engine);
 
         RamPattern pattern = RamPattern::MARCH_C_MINUS;
         if (opts.mode == "walking") pattern = RamPattern::WALKING_ONES;
@@ -279,6 +286,7 @@ int CliRunner::run_test(const CliOptions& opts)
 
     } else if (opts.test == "storage") {
         StorageEngine engine;
+        if (guardian) guardian->register_engine(&engine);
 
         StorageMode smode = StorageMode::SEQ_WRITE;
         if (opts.mode == "read") smode = StorageMode::SEQ_READ;
@@ -309,7 +317,8 @@ int CliRunner::run_test(const CliOptions& opts)
         });
 
         std::string path = opts.storage_path.isEmpty() ? QDir::tempPath().toStdString() : opts.storage_path.toStdString();
-        // TODO: pass opts.block_size_kb and opts.direct_io to engine when StorageEngine API supports them
+        engine.set_block_size_kb(opts.block_size_kb);
+        engine.set_direct_io(opts.direct_io);
         if (!engine.start(smode, path, opts.file_size_mb, opts.queue_depth)) {
             emit_json("error", "storage", QVariant(QString::fromStdString(engine.last_error())));
             return 2;
@@ -336,6 +345,7 @@ int CliRunner::run_test(const CliOptions& opts)
 
     } else if (opts.test == "gpu") {
         GpuEngine engine;
+        if (guardian) guardian->register_engine(&engine);
         if (!engine.initialize()) {
             emit_json("error", "message", "Failed to initialize GPU engine (no GPU or OpenCL/Vulkan unavailable)");
             return 2;
@@ -433,6 +443,7 @@ int CliRunner::run_test(const CliOptions& opts)
 
     } else if (opts.test == "psu") {
         PsuEngine engine;
+        if (guardian) guardian->register_engine(&engine);
 
         PsuLoadPattern psu_pattern = PsuLoadPattern::STEADY;
         if (opts.mode == "spike") psu_pattern = PsuLoadPattern::SPIKE;
@@ -1147,6 +1158,8 @@ int CliRunner::run_combined(const CliOptions& opts)
             });
         } else if (eng == "storage") {
             storage = std::make_unique<StorageEngine>();
+            storage->set_block_size_kb(opts.block_size_kb);
+            storage->set_direct_io(opts.direct_io);
             storage->set_metrics_callback([this, &last_storage](const StorageMetrics& m) {
                 last_storage = m;
                 QJsonObject metric;

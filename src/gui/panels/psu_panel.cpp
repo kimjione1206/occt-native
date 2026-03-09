@@ -1,9 +1,11 @@
 #include "psu_panel.h"
+#include "panel_styles.h"
 #include "../widgets/realtime_chart.h"
 #include "../../engines/psu_engine.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QMessageBox>
 
 namespace occt { namespace gui {
 
@@ -24,6 +26,11 @@ PsuPanel::~PsuPanel()
     }
 }
 
+IEngine* PsuPanel::engine() const
+{
+    return engine_.get();
+}
+
 void PsuPanel::setupUi()
 {
     auto* mainLayout = new QHBoxLayout(this);
@@ -39,7 +46,7 @@ QFrame* PsuPanel::createSettingsSection()
     auto* frame = new QFrame();
     frame->setFixedWidth(320);
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -47,18 +54,18 @@ QFrame* PsuPanel::createSettingsSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("PSU Stress Test", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Combined CPU + GPU load to stress PSU", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Load pattern
     auto* patternLabel = new QLabel("Load Pattern", frame);
-    patternLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    patternLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(patternLabel);
 
     patternCombo_ = new QComboBox(frame);
@@ -71,7 +78,7 @@ QFrame* PsuPanel::createSettingsSection()
 
     // Duration
     auto* durationLabel = new QLabel("Duration", frame);
-    durationLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    durationLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
@@ -97,9 +104,7 @@ QFrame* PsuPanel::createSettingsSection()
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #E67E22; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #F39C12; }"
+        styles::kStartButtonOrange
     );
     connect(startStopBtn_, &QPushButton::clicked, this, &PsuPanel::onStartStopClicked);
     layout->addWidget(startStopBtn_);
@@ -113,7 +118,7 @@ QFrame* PsuPanel::createMonitoringSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -121,7 +126,7 @@ QFrame* PsuPanel::createMonitoringSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("Power Monitoring", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Metrics cards row
@@ -130,12 +135,12 @@ QFrame* PsuPanel::createMonitoringSection()
 
     auto createMetricCard = [frame](const QString& label, const QString& val, const QString& color) -> QLabel* {
         auto* card = new QFrame(frame);
-        card->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        card->setStyleSheet(styles::kCardFrame);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 10, 12, 10);
         cl->setSpacing(4);
         auto* lbl = new QLabel(label, card);
-        lbl->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kSmallInfo);
         lbl->setAlignment(Qt::AlignCenter);
         auto* v = new QLabel(val, card);
         v->setStyleSheet(QString("color: %1; font-size: 20px; font-weight: bold; border: none; background: transparent;").arg(color));
@@ -164,7 +169,7 @@ QFrame* PsuPanel::createMonitoringSection()
 
     auto createStatusLabel = [frame](const QString& label) -> QLabel* {
         auto* lbl = new QLabel(label, frame);
-        lbl->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kPanelSubtitle);
         return lbl;
     };
 
@@ -196,9 +201,7 @@ void PsuPanel::onStartStopClicked()
     if (isRunning_) {
         startStopBtn_->setText("Stop Test");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E74C3C; }"
+            styles::kStopButton
         );
 
         // Map combo index to PsuLoadPattern
@@ -217,16 +220,22 @@ void PsuPanel::onStartStopClicked()
         engine_->set_use_all_gpus(useAllGpus);
         engine_->start(pattern, durationSec);
 
+        // Verify engine actually started
+        if (!engine_->is_running()) {
+            isRunning_ = false;
+            startStopBtn_->setText("Start Test");
+            startStopBtn_->setStyleSheet(styles::kStartButtonOrange);
+            QMessageBox::warning(this, "PSU Test Error",
+                "Failed to start the PSU stress test. Check that CPU and GPU engines are available.");
+            return;
+        }
+
         monitorTimer_->start(500);
 
         emit testStartRequested(patternCombo_->currentText(), durationSec, useAllGpus);
     } else {
         startStopBtn_->setText("Start Test");
-        startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #E67E22; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #F39C12; }"
-        );
+        startStopBtn_->setStyleSheet(styles::kStartButtonOrange);
 
         engine_->stop();
         monitorTimer_->stop();
@@ -242,11 +251,7 @@ void PsuPanel::updateMonitoring()
         if (isRunning_) {
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
-            startStopBtn_->setStyleSheet(
-                "QPushButton { background-color: #E67E22; color: white; border: none; "
-                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #F39C12; }"
-            );
+            startStopBtn_->setStyleSheet(styles::kStartButtonOrange);
             monitorTimer_->stop();
         }
         return;

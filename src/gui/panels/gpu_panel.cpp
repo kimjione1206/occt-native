@@ -1,7 +1,9 @@
 #include "gpu_panel.h"
+#include "panel_styles.h"
 #include "../widgets/realtime_chart.h"
 #include "../widgets/circular_gauge.h"
 #include "../../engines/gpu_engine.h"
+#include "../../engines/base_engine.h"
 #include "../../monitor/sensor_manager.h"
 
 #include <QHBoxLayout>
@@ -48,7 +50,7 @@ QFrame* GpuPanel::createSettingsSection()
     auto* frame = new QFrame();
     frame->setFixedWidth(320);
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -56,36 +58,35 @@ QFrame* GpuPanel::createSettingsSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("GPU Stress Test", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Configure GPU compute & 3D stress tests", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // GPU selection
     auto* gpuLabel = new QLabel("GPU Device", frame);
-    gpuLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    gpuLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(gpuLabel);
 
     gpuSelectCombo_ = new QComboBox(frame);
-    gpuSelectCombo_->addItem("Auto-detect (default GPU)");
+    // Populate with detected GPUs
+    auto gpus = engine_->get_available_gpus();
+    if (gpus.empty()) {
+        gpuSelectCombo_->addItem("Auto-detect (default GPU)");
+    } else {
+        for (const auto& gpu : gpus) {
+            gpuSelectCombo_->addItem(QString::fromStdString(gpu.name));
+        }
+    }
     layout->addWidget(gpuSelectCombo_);
-
-    // Backend selection
-    auto* backendLabel = new QLabel("Backend", frame);
-    backendLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
-    layout->addWidget(backendLabel);
-
-    backendCombo_ = new QComboBox(frame);
-    backendCombo_->addItems({"OpenCL", "Vulkan"});
-    layout->addWidget(backendCombo_);
 
     // Mode
     auto* modeLabel = new QLabel("Test Mode", frame);
-    modeLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    modeLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
@@ -111,7 +112,7 @@ QFrame* GpuPanel::createSettingsSection()
 
     // Shader complexity slider
     auto* shaderLabel = new QLabel("Shader Complexity", vulkanSettingsWidget_);
-    shaderLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    shaderLabel->setStyleSheet(styles::kSettingsLabel);
     vulkanLayout->addWidget(shaderLabel);
 
     auto* sliderLayout = new QHBoxLayout();
@@ -122,7 +123,7 @@ QFrame* GpuPanel::createSettingsSection()
     shaderComplexitySlider_->setTickInterval(1);
 
     shaderComplexityLabel_ = new QLabel("Level 1", vulkanSettingsWidget_);
-    shaderComplexityLabel_->setStyleSheet("color: #58A6FF; font-weight: bold; border: none; background: transparent;");
+    shaderComplexityLabel_->setStyleSheet(styles::kSettingsLabel);
     shaderComplexityLabel_->setFixedWidth(60);
 
     connect(shaderComplexitySlider_, &QSlider::valueChanged, this, [this](int val) {
@@ -135,7 +136,7 @@ QFrame* GpuPanel::createSettingsSection()
 
     // Adaptive mode
     auto* adaptiveLabel = new QLabel("Adaptive Mode", vulkanSettingsWidget_);
-    adaptiveLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    adaptiveLabel->setStyleSheet(styles::kSettingsLabel);
     vulkanLayout->addWidget(adaptiveLabel);
 
     adaptiveModeCombo_ = new QComboBox(vulkanSettingsWidget_);
@@ -144,7 +145,7 @@ QFrame* GpuPanel::createSettingsSection()
 
     // Coil Whine Frequency (for COIL_WHINE adaptive mode)
     coilFreqLabel_ = new QLabel("Coil Frequency (Hz)", vulkanSettingsWidget_);
-    coilFreqLabel_->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    coilFreqLabel_->setStyleSheet(styles::kSettingsLabel);
     vulkanLayout->addWidget(coilFreqLabel_);
 
     auto* coilFreqRow = new QHBoxLayout();
@@ -177,7 +178,7 @@ QFrame* GpuPanel::createSettingsSection()
 
     // Duration
     auto* durationLabel = new QLabel("Duration", frame);
-    durationLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    durationLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
@@ -196,9 +197,7 @@ QFrame* GpuPanel::createSettingsSection()
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
+        styles::kStartButton
     );
     connect(startStopBtn_, &QPushButton::clicked, this, &GpuPanel::onStartStopClicked);
     layout->addWidget(startStopBtn_);
@@ -212,7 +211,7 @@ QFrame* GpuPanel::createMonitoringSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -220,7 +219,7 @@ QFrame* GpuPanel::createMonitoringSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("GPU Monitoring", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Top metrics row
@@ -239,13 +238,13 @@ QFrame* GpuPanel::createMonitoringSection()
 
     auto createMetricCard = [frame](const QString& label, const QString& val) -> QLabel* {
         auto* card = new QFrame(frame);
-        card->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        card->setStyleSheet(styles::kCardFrame);
         auto* cl = new QHBoxLayout(card);
         cl->setContentsMargins(12, 8, 12, 8);
         auto* lbl = new QLabel(label, card);
-        lbl->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kPanelSubtitle);
         auto* v = new QLabel(val, card);
-        v->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+        v->setStyleSheet(styles::kSectionTitle);
         v->setAlignment(Qt::AlignRight);
         cl->addWidget(lbl);
         cl->addStretch();
@@ -257,7 +256,7 @@ QFrame* GpuPanel::createMonitoringSection()
     metricsGrid->addWidget(gflopsLabel_->parentWidget());
     tempLabel_ = createMetricCard("Temperature", "-- C");
     metricsGrid->addWidget(tempLabel_->parentWidget());
-    vramLabel_ = createMetricCard("VRAM Used", "-- / -- MB");
+    vramLabel_ = createMetricCard("VRAM Used", "-- %");
     metricsGrid->addWidget(vramLabel_->parentWidget());
     fpsLabel_ = createMetricCard("FPS", "--");
     metricsGrid->addWidget(fpsLabel_->parentWidget());
@@ -269,7 +268,7 @@ QFrame* GpuPanel::createMonitoringSection()
 
     // VRAM progress bar
     auto* vramTitle = new QLabel("VRAM Usage", frame);
-    vramTitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    vramTitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(vramTitle);
 
     vramBar_ = new QProgressBar(frame);
@@ -290,6 +289,10 @@ QFrame* GpuPanel::createMonitoringSection()
     return frame;
 }
 
+IEngine* GpuPanel::engine() const {
+    return engine_.get();
+}
+
 void GpuPanel::setSensorManager(SensorManager* mgr)
 {
     sensorMgr_ = mgr;
@@ -300,6 +303,15 @@ void GpuPanel::onModeChanged(int index)
     // Show Vulkan settings when Vulkan modes are selected (indices 6 and 7)
     bool isVulkanMode = (index >= 6);
     vulkanSettingsWidget_->setVisible(isVulkanMode);
+
+    // FPS and Artifact labels are only relevant for Vulkan 3D modes
+    if (isVulkanMode) {
+        fpsLabel_->setText("--");
+        artifactLabel_->setText("0");
+    } else {
+        fpsLabel_->setText("N/A");
+        artifactLabel_->setText("N/A");
+    }
 }
 
 void GpuPanel::onStartStopClicked()
@@ -309,9 +321,7 @@ void GpuPanel::onStartStopClicked()
     if (isRunning_) {
         startStopBtn_->setText("Stop Test");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E74C3C; }"
+            styles::kStopButton
         );
 
         // Map combo index to GpuStressMode
@@ -348,17 +358,16 @@ void GpuPanel::onStartStopClicked()
 
         int durationSec = durationCombo_->currentData().toInt();
 
+        // Clear chart for the new test
+        gflopsChart_->clear();
+
         // Start engine
         if (!engine_->start(mode, durationSec)) {
             QMessageBox::warning(this, "GPU Test Error",
                 QString::fromStdString(engine_->last_error()));
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
-            startStopBtn_->setStyleSheet(
-                "QPushButton { background-color: #27AE60; color: white; border: none; "
-                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #2ECC71; }"
-            );
+            startStopBtn_->setStyleSheet(styles::kStartButton);
             return;
         }
 
@@ -368,11 +377,7 @@ void GpuPanel::onStartStopClicked()
         emit testStartRequested(gpuSelectCombo_->currentText(), modeCombo_->currentText(), durationSec);
     } else {
         startStopBtn_->setText("Start Test");
-        startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #27AE60; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2ECC71; }"
-        );
+        startStopBtn_->setStyleSheet(styles::kStartButton);
 
         // Stop engine
         engine_->stop();
@@ -388,11 +393,7 @@ void GpuPanel::updateMonitoring()
         if (isRunning_) {
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
-            startStopBtn_->setStyleSheet(
-                "QPushButton { background-color: #27AE60; color: white; border: none; "
-                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #2ECC71; }"
-            );
+            startStopBtn_->setStyleSheet(styles::kStartButton);
             monitorTimer_->stop();
         }
         return;
@@ -407,9 +408,13 @@ void GpuPanel::updateMonitoring()
     // Update GPU usage gauge
     gpuUsageGauge_->setValue(m.gpu_usage_pct);
 
-    // Update temperature
-    if (m.temperature > 0)
-        tempLabel_->setText(QString::number(m.temperature, 'f', 1) + " C");
+    // Update temperature (with SensorManager fallback)
+    double gpuTemp = m.temperature;
+    if (sensorMgr_ && gpuTemp <= 0) {
+        gpuTemp = sensorMgr_->get_gpu_temperature();
+    }
+    if (gpuTemp > 0)
+        tempLabel_->setText(QString::number(gpuTemp, 'f', 1) + " °C");
 
     // Update VRAM
     vramLabel_->setText(QString::number(m.vram_usage_pct, 'f', 1) + "%");

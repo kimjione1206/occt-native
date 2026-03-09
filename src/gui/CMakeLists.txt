@@ -4,6 +4,7 @@ add_library(occt_gui STATIC
     main_window.cpp
 
     # Panels
+    panels/panel_styles.h
     panels/dashboard_panel.h
     panels/dashboard_panel.cpp
     panels/cpu_panel.h

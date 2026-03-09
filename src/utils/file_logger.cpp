@@ -60,7 +60,10 @@ void FileLogger::messageHandler(QtMsgType type,
     QMutexLocker lock(&mutex_);
     if (logFile_.isOpen()) {
         rotateIfNeeded();
-        logFile_.write(utf8);
+        if (logFile_.write(utf8) == -1) {
+            // Fail silently — avoid recursive logging from within the logger
+            return;
+        }
         logFile_.flush();
     }
 

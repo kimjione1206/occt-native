@@ -45,6 +45,25 @@ static inline void __cpuidex(int info[4], int leaf, int sub) {
 
 namespace occt {
 
+// ─── CPUID leaf and mask constants ──────────────────────────────────────────
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+static constexpr uint32_t CPUID_EXTENDED_MAX       = 0x80000000;
+static constexpr uint32_t CPUID_BRAND_STRING_START = 0x80000002;
+static constexpr uint32_t CPUID_BRAND_STRING_END   = 0x80000004;
+static constexpr int      CPUID_BRAND_BUF_SIZE     = 49;  // 3 * 16 bytes + null
+
+// CPUID leaf 4 cache descriptor bit masks
+static constexpr int CACHE_TYPE_MASK       = 0x1F;   // bits [4:0] of EAX
+static constexpr int CACHE_LEVEL_SHIFT     = 5;
+static constexpr int CACHE_LEVEL_MASK      = 0x7;    // bits [7:5] of EAX
+static constexpr int CACHE_WAYS_SHIFT      = 22;
+static constexpr int CACHE_WAYS_MASK       = 0x3FF;  // bits [31:22] of EBX
+static constexpr int CACHE_PARTITIONS_SHIFT = 12;
+static constexpr int CACHE_PARTITIONS_MASK = 0x3FF;  // bits [21:12] of EBX
+static constexpr int CACHE_LINE_SIZE_MASK  = 0xFFF;  // bits [11:0] of EBX
+#endif
+
 // ─── CPU detection (platform-independent CPUID + OS-specific) ───────────────
 
 static CpuInfoDetail detect_cpu_info() {
@@ -53,17 +72,17 @@ static CpuInfoDetail detect_cpu_info() {
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     // Use CPUID for brand string
     std::array<int, 4> cpui = {};
-    char brand[49] = {};
+    char brand[CPUID_BRAND_BUF_SIZE] = {};
 
-    __cpuid(cpui.data(), 0x80000000);
+    __cpuid(cpui.data(), static_cast<int>(CPUID_EXTENDED_MAX));
     unsigned max_ext = static_cast<unsigned>(cpui[0]);
 
-    if (max_ext >= 0x80000004) {
-        __cpuid(cpui.data(), 0x80000002);
+    if (max_ext >= CPUID_BRAND_STRING_END) {
+        __cpuid(cpui.data(), static_cast<int>(CPUID_BRAND_STRING_START));
         std::memcpy(brand, cpui.data(), 16);
-        __cpuid(cpui.data(), 0x80000003);
+        __cpuid(cpui.data(), static_cast<int>(CPUID_BRAND_STRING_START + 1));
         std::memcpy(brand + 16, cpui.data(), 16);
-        __cpuid(cpui.data(), 0x80000004);
+        __cpuid(cpui.data(), static_cast<int>(CPUID_BRAND_STRING_END));
         std::memcpy(brand + 32, cpui.data(), 16);
         brand[48] = '\0';
         info.model = QString::fromLatin1(brand).trimmed();
@@ -75,15 +94,15 @@ static CpuInfoDetail detect_cpu_info() {
     if (max_leaf >= 4) {
         for (int sub = 0; sub < 16; ++sub) {
             __cpuidex(cpui.data(), 4, sub);
-            int type = cpui[0] & 0x1F;
+            int type = cpui[0] & CACHE_TYPE_MASK;
             if (type == 0) break;
-            int ways   = ((cpui[1] >> 22) & 0x3FF) + 1;
-            int parts  = ((cpui[1] >> 12) & 0x3FF) + 1;
-            int line   = (cpui[1] & 0xFFF) + 1;
+            int ways   = ((cpui[1] >> CACHE_WAYS_SHIFT) & CACHE_WAYS_MASK) + 1;
+            int parts  = ((cpui[1] >> CACHE_PARTITIONS_SHIFT) & CACHE_PARTITIONS_MASK) + 1;
+            int line   = (cpui[1] & CACHE_LINE_SIZE_MASK) + 1;
             int sets   = cpui[2] + 1;
             int size_kb = (ways * parts * line * sets) / 1024;
 
-            int level = (cpui[0] >> 5) & 0x7;
+            int level = (cpui[0] >> CACHE_LEVEL_SHIFT) & CACHE_LEVEL_MASK;
             if (level == 1)      info.l1_cache_kb += size_kb;
             else if (level == 2) info.l2_cache_kb += size_kb;
             else if (level == 3) info.l3_cache_kb += size_kb;

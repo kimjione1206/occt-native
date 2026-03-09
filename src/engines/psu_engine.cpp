@@ -13,6 +13,8 @@ PsuEngine::~PsuEngine() {
 }
 
 void PsuEngine::start(PsuLoadPattern pattern, int duration_secs) {
+    std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
     if (running_.load()) return;
 
     // Initialize GPU backend
@@ -37,6 +39,8 @@ void PsuEngine::start(PsuLoadPattern pattern, int duration_secs) {
 }
 
 void PsuEngine::stop() {
+    std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
     stop_requested_.store(true);
 
     stop_cpu_load();

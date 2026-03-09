@@ -10,6 +10,7 @@
 #include <memory>
 
 namespace occt {
+class IEngine;
 class PsuEngine;
 }
 
@@ -23,6 +24,9 @@ class PsuPanel : public QWidget {
 public:
     explicit PsuPanel(QWidget* parent = nullptr);
     ~PsuPanel() override;
+
+    /// Return a raw pointer to the underlying engine (for SafetyGuardian registration).
+    IEngine* engine() const;
 
 signals:
     void testStartRequested(const QString& pattern, int durationSec, bool useAllGpus);

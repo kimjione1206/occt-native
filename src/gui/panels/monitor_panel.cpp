@@ -1,4 +1,5 @@
 #include "monitor_panel.h"
+#include "panel_styles.h"
 #include "../widgets/realtime_chart.h"
 #include "../../monitor/sensor_manager.h"
 #include "../../monitor/sensor_model.h"
@@ -17,14 +18,13 @@ MonitorPanel::MonitorPanel(QWidget* parent)
     setupUi();
 
     // Create a SensorManager and initialize it for real hardware polling
-    ownedSensorMgr_ = new SensorManager();
+    ownedSensorMgr_ = std::make_unique<SensorManager>();
     if (ownedSensorMgr_->initialize()) {
         ownedSensorMgr_->start_polling(500);
-        sensorMgr_ = ownedSensorMgr_;
+        sensorMgr_ = ownedSensorMgr_.get();
     } else {
         // Initialization failed; show placeholder structure
-        delete ownedSensorMgr_;
-        ownedSensorMgr_ = nullptr;
+        ownedSensorMgr_.reset();
 
         addSensorCategory("CPU", {
             "Package Temperature",
@@ -67,19 +67,17 @@ MonitorPanel::MonitorPanel(QWidget* parent)
 MonitorPanel::~MonitorPanel() {
     if (ownedSensorMgr_) {
         ownedSensorMgr_->stop();
-        delete ownedSensorMgr_;
-        ownedSensorMgr_ = nullptr;
     }
+    // ownedSensorMgr_ is automatically destroyed by unique_ptr
 }
 
 void MonitorPanel::setSensorManager(SensorManager* mgr) {
     if (!mgr) return;
 
-    // If externally injected, stop and delete our own instance
-    if (ownedSensorMgr_ && mgr != ownedSensorMgr_) {
+    // If externally injected, stop and release our own instance
+    if (ownedSensorMgr_ && mgr != ownedSensorMgr_.get()) {
         ownedSensorMgr_->stop();
-        delete ownedSensorMgr_;
-        ownedSensorMgr_ = nullptr;
+        ownedSensorMgr_.reset();
     }
     sensorMgr_ = mgr;
 
@@ -144,7 +142,7 @@ void MonitorPanel::setupUi()
     // Left: Sensor tree
     auto* treeFrame = new QFrame(splitter);
     treeFrame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
     auto* treeLayout = new QVBoxLayout(treeFrame);
     treeLayout->setContentsMargins(12, 12, 12, 12);
@@ -176,14 +174,14 @@ void MonitorPanel::setupUi()
     // Right: Chart and details
     auto* chartFrame = new QFrame(splitter);
     chartFrame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
     auto* chartLayout = new QVBoxLayout(chartFrame);
     chartLayout->setContentsMargins(16, 16, 16, 16);
     chartLayout->setSpacing(12);
 
     sensorNameLabel_ = new QLabel("Select a sensor", chartFrame);
-    sensorNameLabel_->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    sensorNameLabel_->setStyleSheet(styles::kSectionTitle);
     chartLayout->addWidget(sensorNameLabel_);
 
     // Stats row
@@ -192,13 +190,13 @@ void MonitorPanel::setupUi()
 
     auto createStat = [chartFrame](const QString& label) -> QLabel* {
         auto* card = new QFrame(chartFrame);
-        card->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        card->setStyleSheet(styles::kCardFrame);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 6, 12, 6);
         auto* lbl = new QLabel(label, card);
-        lbl->setStyleSheet("color: #8B949E; font-size: 10px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kSmallInfo);
         auto* val = new QLabel("--", card);
-        val->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+        val->setStyleSheet(styles::kSectionTitle);
         cl->addWidget(lbl);
         cl->addWidget(val);
         return val;
@@ -339,6 +337,8 @@ void MonitorPanel::updateSensors()
                 sensorValueLabel_->setText(QString::number(r.value, 'f', 1));
                 sensorMinLabel_->setText(QString::number(r.min_value, 'f', 1));
                 sensorMaxLabel_->setText(QString::number(r.max_value, 'f', 1));
+                double avg = (r.min_value + r.max_value) / 2.0;
+                sensorAvgLabel_->setText(QString::number(avg, 'f', 1));
                 break;
             }
         }

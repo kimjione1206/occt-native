@@ -8,6 +8,8 @@
 #include <QPushButton>
 #include <QSplitter>
 
+#include <memory>
+
 namespace occt {
 class SensorManager;
 class WheaMonitor;
@@ -54,8 +56,8 @@ private:
     QString selectedSensor_;
     bool monitorOnlyMode_ = false;
 
-    SensorManager* sensorMgr_ = nullptr;
-    SensorManager* ownedSensorMgr_ = nullptr; // owned by this panel
+    SensorManager* sensorMgr_ = nullptr;                  // non-owning; points to external or owned
+    std::unique_ptr<SensorManager> ownedSensorMgr_;       // owned only when created internally
     WheaMonitor*   wheaMon_   = nullptr;
 };
 

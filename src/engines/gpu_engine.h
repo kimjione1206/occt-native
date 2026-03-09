@@ -1,5 +1,7 @@
 #pragma once
 
+#include "base_engine.h"
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -53,10 +55,10 @@ struct GpuMetrics {
     int shader_level = 0;
 };
 
-class GpuEngine {
+class GpuEngine : public IEngine {
 public:
     GpuEngine();
-    ~GpuEngine();
+    ~GpuEngine() override;
 
     // Non-copyable
     GpuEngine(const GpuEngine&) = delete;
@@ -98,20 +100,19 @@ public:
     std::string last_error() const;
 
     /// Stop the running stress test.
-    void stop();
+    void stop() override;
 
     /// Check if stress test is currently running.
-    bool is_running() const;
+    bool is_running() const override;
+
+    /// Human-readable engine name.
+    std::string name() const override { return "GPU"; }
 
     /// Get latest metrics snapshot.
     GpuMetrics get_metrics() const;
 
     using MetricsCallback = std::function<void(const GpuMetrics&)>;
     void set_metrics_callback(MetricsCallback cb);
-
-    /// When enabled, the engine will automatically stop when a VRAM error is detected.
-    void set_stop_on_error(bool enable);
-    bool stop_on_error() const;
 
 private:
     struct Impl;

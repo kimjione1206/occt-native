@@ -12,6 +12,7 @@
 #include <memory>
 
 namespace occt {
+class IEngine;
 class RamEngine;
 }
 
@@ -25,6 +26,9 @@ class RamPanel : public QWidget {
 public:
     explicit RamPanel(QWidget* parent = nullptr);
     ~RamPanel() override;
+
+    /// Return a raw pointer to the underlying engine (for SafetyGuardian registration).
+    IEngine* engine() const;
 
 signals:
     void testStartRequested(const QString& pattern, int memPercent, int passes);

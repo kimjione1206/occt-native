@@ -1,4 +1,5 @@
 #include "certificate_panel.h"
+#include "panel_styles.h"
 
 #include "scheduler/test_scheduler.h"
 #include "scheduler/preset_schedules.h"
@@ -50,7 +51,7 @@ QFrame* CertificatePanel::createTierSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -58,18 +59,18 @@ QFrame* CertificatePanel::createTierSection()
     layout->setSpacing(12);
 
     auto* title = new QLabel("Stability Certificate", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Run a certified stability test to prove system reliability", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     subtitle->setWordWrap(true);
     layout->addWidget(subtitle);
 
     layout->addSpacing(8);
 
     auto* tierLabel = new QLabel("Select Tier", frame);
-    tierLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    tierLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(tierLabel);
 
     auto createTierBtn = [frame](const QString& text, const QString& color) -> QPushButton* {
@@ -106,7 +107,7 @@ QFrame* CertificatePanel::createTierSection()
     connect(platinumBtn_, &QPushButton::clicked, this, [this]() { onTierSelected(3); });
 
     tierInfoLabel_ = new QLabel("", frame);
-    tierInfoLabel_->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+    tierInfoLabel_->setStyleSheet(styles::kSmallInfo);
     tierInfoLabel_->setWordWrap(true);
     layout->addWidget(tierInfoLabel_);
 
@@ -117,7 +118,7 @@ QFrame* CertificatePanel::createProgressSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -125,7 +126,7 @@ QFrame* CertificatePanel::createProgressSection()
     layout->setSpacing(12);
 
     auto* title = new QLabel("Certification Progress", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 14px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     certProgress_ = new QProgressBar(frame);
@@ -156,9 +157,7 @@ QFrame* CertificatePanel::createProgressSection()
     startBtn_->setCursor(Qt::PointingHandCursor);
     startBtn_->setFixedHeight(48);
     startBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
+        styles::kStartButton
     );
     connect(startBtn_, &QPushButton::clicked, this, &CertificatePanel::onStartCertification);
     layout->addWidget(startBtn_);
@@ -170,7 +169,7 @@ QFrame* CertificatePanel::createPreviewSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -178,7 +177,7 @@ QFrame* CertificatePanel::createPreviewSection()
     layout->setSpacing(12);
 
     auto* title = new QLabel("Certificate Preview", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     previewBrowser_ = new QTextBrowser(frame);
@@ -262,9 +261,7 @@ void CertificatePanel::onStartCertification()
         isRunning_ = false;
         startBtn_->setText("Start Certification");
         startBtn_->setStyleSheet(
-            "QPushButton { background-color: #27AE60; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2ECC71; }"
+            styles::kStartButton
         );
         currentStepLabel_->setText("Certification stopped");
         return;
@@ -287,9 +284,7 @@ void CertificatePanel::onStartCertification()
 
     startBtn_->setText("Stop Certification");
     startBtn_->setStyleSheet(
-        "QPushButton { background-color: #C0392B; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #E74C3C; }"
+        styles::kStopButton
     );
 
     scheduler_->start();
@@ -321,9 +316,7 @@ void CertificatePanel::onScheduleCompleted(bool all_passed, int total_errors)
 
     startBtn_->setText("Start Certification");
     startBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
+        styles::kStartButton
     );
 
     // Build certificate
@@ -385,7 +378,13 @@ void CertificatePanel::onSaveHtml()
     if (!path.isEmpty()) {
         QFile file(path);
         if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            file.write(lastHtml_.toUtf8());
+            if (file.write(lastHtml_.toUtf8()) == -1) {
+                qWarning() << "Failed to write certificate HTML to" << path
+                           << ":" << file.errorString();
+            }
+        } else {
+            qWarning() << "Failed to open file for writing:" << path
+                       << ":" << file.errorString();
         }
     }
 }

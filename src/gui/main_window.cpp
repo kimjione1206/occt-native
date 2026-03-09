@@ -12,6 +12,7 @@
 #include "panels/schedule_panel.h"
 #include "panels/certificate_panel.h"
 #include "../monitor/sensor_manager.h"
+#include "../safety/guardian.h"
 
 #include <QApplication>
 #include <QFile>
@@ -29,10 +30,11 @@ MainWindow::MainWindow(QWidget* parent)
     setMinimumSize(1200, 800);
     resize(1400, 900);
 
+    // Create status timer BEFORE setupUi() since createStatusBarWidgets() connects to it
+    statusTimer_ = new QTimer(this);
+
     setupUi();
 
-    // Status bar timer
-    statusTimer_ = new QTimer(this);
     connect(statusTimer_, &QTimer::timeout, this, &MainWindow::updateStatusBar);
     statusTimer_->start(1000);
 
@@ -42,11 +44,20 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    // Stop guardian before destroying sensor manager (preserves destruction order)
+    if (safetyGuardian_) {
+        safetyGuardian_->stop();
+    }
+    safetyGuardian_.reset();
+
+    if (statusTimer_) {
+        statusTimer_->stop();
+    }
+
     if (sensorMgr_) {
         sensorMgr_->stop();
-        delete sensorMgr_;
-        sensorMgr_ = nullptr;
     }
+    sensorMgr_.reset();
 }
 
 void MainWindow::setupUi()
@@ -229,15 +240,24 @@ void MainWindow::createPanels()
     }
 
     // Create shared SensorManager and distribute to panels that need sensor data
-    sensorMgr_ = new SensorManager();
+    sensorMgr_ = std::make_unique<SensorManager>();
     if (sensorMgr_->initialize()) {
         sensorMgr_->start_polling(500);
     }
 
-    monitorPanel->setSensorManager(sensorMgr_);
-    cpuPanel->setSensorManager(sensorMgr_);
-    gpuPanel->setSensorManager(sensorMgr_);
-    dashboardPanel->setSensorManager(sensorMgr_);
+    monitorPanel->setSensorManager(sensorMgr_.get());
+    cpuPanel->setSensorManager(sensorMgr_.get());
+    gpuPanel->setSensorManager(sensorMgr_.get());
+    dashboardPanel->setSensorManager(sensorMgr_.get());
+
+    // Set up SafetyGuardian and register all IEngine-based engines
+    safetyGuardian_ = std::make_unique<SafetyGuardian>(sensorMgr_.get());
+    safetyGuardian_->register_engine(cpuPanel->engine());
+    safetyGuardian_->register_engine(gpuPanel->engine());
+    safetyGuardian_->register_engine(ramPanel->engine());
+    safetyGuardian_->register_engine(storagePanel->engine());
+    safetyGuardian_->register_engine(psuPanel->engine());
+    safetyGuardian_->start();
 
     // Connect Dashboard quick-start buttons to navigate to the correct panels
     connect(dashboardPanel, &DashboardPanel::startCpuTest, this, [this]() {
@@ -263,12 +283,12 @@ void MainWindow::createStatusBarWidgets()
     statusLabel_->setStyleSheet("color: #8B949E; padding: 2px 8px;");
     sb->addWidget(statusLabel_, 1);
 
-    auto* timeLabel = new QLabel(sb);
-    timeLabel->setStyleSheet("color: #8B949E; padding: 2px 8px;");
-    sb->addPermanentWidget(timeLabel);
+    timeLabel_ = new QLabel(sb);
+    timeLabel_->setStyleSheet("color: #8B949E; padding: 2px 8px;");
+    sb->addPermanentWidget(timeLabel_);
 
-    connect(statusTimer_, &QTimer::timeout, this, [timeLabel]() {
-        timeLabel->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));
+    connect(statusTimer_, &QTimer::timeout, this, [this]() {
+        timeLabel_->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));
     });
 }
 

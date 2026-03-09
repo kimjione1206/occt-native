@@ -14,6 +14,8 @@
 
 namespace occt {
 
+class SensorManager; // forward declaration
+
 enum class CpuStressMode {
     AVX2_FMA,       // AVX2 FMA intensive load
     AVX512_FMA,     // AVX-512 FMA load
@@ -70,6 +72,9 @@ public:
     std::string name() const override { return "CPU"; }
     CpuMetrics get_metrics() const;
 
+    /// Set SensorManager for temperature/power readings.
+    void set_sensor_manager(SensorManager* mgr);
+
     /// Get formatted error summary string.
     /// Example: "2 error(s) on 2 core(s): Core #3 (1), Core #7 (1)"
     std::string error_summary() const;
@@ -103,6 +108,12 @@ private:
     // Core cycling support
     std::atomic<int> active_core_{0};   // Currently active core for CORE_CYCLING pattern
     std::thread cycling_thread_;        // Thread that rotates active_core_ every 150ms
+
+    // Sensor manager for temperature/power (non-owning)
+    SensorManager* sensor_mgr_ = nullptr;
+
+    // Protects start()/stop() against concurrent calls
+    std::mutex start_stop_mutex_;
 
     // Error verification system
     ErrorVerifier error_verifier_;

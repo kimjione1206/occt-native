@@ -1,4 +1,5 @@
 #include "storage_panel.h"
+#include "panel_styles.h"
 #include "../widgets/realtime_chart.h"
 #include "../../engines/storage_engine.h"
 
@@ -27,6 +28,11 @@ StoragePanel::~StoragePanel()
     }
 }
 
+IEngine* StoragePanel::engine() const
+{
+    return engine_.get();
+}
+
 void StoragePanel::setupUi()
 {
     auto* mainLayout = new QHBoxLayout(this);
@@ -42,7 +48,7 @@ QFrame* StoragePanel::createSettingsSection()
     auto* frame = new QFrame();
     frame->setFixedWidth(320);
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -50,18 +56,18 @@ QFrame* StoragePanel::createSettingsSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("Storage Test", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Disk I/O performance testing", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Mode
     auto* modeLabel = new QLabel("Test Mode", frame);
-    modeLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    modeLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
@@ -80,7 +86,7 @@ QFrame* StoragePanel::createSettingsSection()
 
     // Block size
     auto* blockLabel = new QLabel("Block Size", frame);
-    blockLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    blockLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(blockLabel);
 
     blockSizeCombo_ = new QComboBox(frame);
@@ -95,7 +101,7 @@ QFrame* StoragePanel::createSettingsSection()
 
     // Queue Depth
     auto* qdLabel = new QLabel("Queue Depth", frame);
-    qdLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    qdLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(qdLabel);
 
     queueDepthSpin_ = new QSpinBox(frame);
@@ -109,9 +115,7 @@ QFrame* StoragePanel::createSettingsSection()
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
+        styles::kStartButton
     );
     connect(startStopBtn_, &QPushButton::clicked, this, &StoragePanel::onStartStopClicked);
     layout->addWidget(startStopBtn_);
@@ -125,7 +129,7 @@ QFrame* StoragePanel::createMonitoringSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -133,7 +137,7 @@ QFrame* StoragePanel::createMonitoringSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("Storage Monitoring", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Metrics row
@@ -142,13 +146,13 @@ QFrame* StoragePanel::createMonitoringSection()
 
     auto createMetric = [frame](const QString& label, const QString& val) -> QLabel* {
         auto* card = new QFrame(frame);
-        card->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        card->setStyleSheet(styles::kCardFrame);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 8, 12, 8);
         auto* lbl = new QLabel(label, card);
-        lbl->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kSmallInfo);
         auto* v = new QLabel(val, card);
-        v->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+        v->setStyleSheet(styles::kPanelTitle);
         cl->addWidget(lbl);
         cl->addWidget(v);
         return v;
@@ -199,9 +203,7 @@ void StoragePanel::onStartStopClicked()
     if (isRunning_) {
         startStopBtn_->setText("Stop Test");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E74C3C; }"
+            styles::kStopButton
         );
 
         // Map combo index to StorageMode
@@ -222,6 +224,17 @@ void StoragePanel::onStartStopClicked()
 
         int queueDepth = queueDepthSpin_->value();
 
+        // Configure block size from combo (parse "4 KB", "1 MB", etc.)
+        QString blockText = blockSizeCombo_->currentText().trimmed();
+        uint32_t blockSizeKb = 4;
+        if (blockText.contains("MB")) {
+            blockSizeKb = blockText.remove("MB").trimmed().toUInt() * 1024;
+        } else {
+            blockSizeKb = blockText.remove("KB").trimmed().toUInt();
+        }
+        engine_->set_block_size_kb(blockSizeKb);
+        engine_->set_direct_io(directIOCheck_->isChecked());
+
         // Use temp directory for test file (engine expects a directory path)
         QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
         std::string testPath = tempPath.toStdString();
@@ -238,11 +251,7 @@ void StoragePanel::onStartStopClicked()
         emit testStartRequested(modeCombo_->currentText(), directIOCheck_->isChecked(), queueDepthSpin_->value());
     } else {
         startStopBtn_->setText("Start Test");
-        startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #27AE60; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2ECC71; }"
-        );
+        startStopBtn_->setStyleSheet(styles::kStartButton);
 
         engine_->stop();
         monitorTimer_->stop();
@@ -257,11 +266,7 @@ void StoragePanel::updateMonitoring()
         if (isRunning_) {
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
-            startStopBtn_->setStyleSheet(
-                "QPushButton { background-color: #27AE60; color: white; border: none; "
-                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #2ECC71; }"
-            );
+            startStopBtn_->setStyleSheet(styles::kStartButton);
             monitorTimer_->stop();
         }
         return;
@@ -302,7 +307,7 @@ void StoragePanel::updateMonitoring()
     } else {
         verifyErrorsLabel_->setText("0");
         verifyErrorsLabel_->setStyleSheet(
-            "color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+            styles::kPanelTitle);
     }
 
     // Update CRC errors
@@ -313,7 +318,7 @@ void StoragePanel::updateMonitoring()
     } else {
         crcErrorsLabel_->setText("0");
         crcErrorsLabel_->setStyleSheet(
-            "color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+            styles::kPanelTitle);
     }
 
     // Update pattern errors
@@ -324,7 +329,7 @@ void StoragePanel::updateMonitoring()
     } else {
         patternErrorsLabel_->setText("0");
         patternErrorsLabel_->setStyleSheet(
-            "color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+            styles::kPanelTitle);
     }
 
     // Update verify speed

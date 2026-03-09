@@ -12,13 +12,13 @@ AppConfig& AppConfig::instance()
 AppConfig::AppConfig()
 {
     QString iniPath = PortablePaths::configDir() + "/settings.ini";
-    settings_ = new QSettings(iniPath, QSettings::IniFormat);
+    settings_ = std::make_unique<QSettings>(iniPath, QSettings::IniFormat);
 }
 
 AppConfig::~AppConfig()
 {
     settings_->sync();
-    delete settings_;
+    // settings_ is automatically destroyed by unique_ptr
 }
 
 // Window state

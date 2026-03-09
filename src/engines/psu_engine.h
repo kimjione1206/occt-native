@@ -68,6 +68,7 @@ private:
 
     std::thread controller_thread_;
     std::thread metrics_thread_;
+    std::mutex start_stop_mutex_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
     std::chrono::steady_clock::time_point start_time_;

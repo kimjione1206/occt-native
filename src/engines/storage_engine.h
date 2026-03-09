@@ -124,6 +124,7 @@ private:
     void free_aligned(uint8_t* ptr);
 
     std::thread worker_;
+    std::mutex start_stop_mutex_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
 
@@ -135,6 +136,16 @@ private:
 
     std::string test_file_path_;
     std::string last_error_;
+
+    uint32_t block_size_kb_ = 4;      // Random I/O block size in KB (default 4KB)
+    bool force_direct_io_ = true;      // Use O_DIRECT / FILE_FLAG_NO_BUFFERING
+
+public:
+    /// Set the block size for random I/O operations (in KB). Must be called before start().
+    void set_block_size_kb(uint32_t kb);
+
+    /// Enable or disable direct I/O (bypass OS cache). Must be called before start().
+    void set_direct_io(bool enabled);
 };
 
 } // namespace occt

@@ -11,6 +11,7 @@
 #include <memory>
 
 namespace occt {
+class IEngine;
 class StorageEngine;
 }
 
@@ -24,6 +25,9 @@ class StoragePanel : public QWidget {
 public:
     explicit StoragePanel(QWidget* parent = nullptr);
     ~StoragePanel() override;
+
+    /// Return a raw pointer to the underlying engine (for SafetyGuardian registration).
+    IEngine* engine() const;
 
 signals:
     void testStartRequested(const QString& mode, bool directIO, int queueDepth);

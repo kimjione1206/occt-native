@@ -76,6 +76,8 @@ RamEngine::~RamEngine() {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 void RamEngine::start(RamPattern pattern, double memory_pct, int passes) {
+    std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
     if (running_.load()) return;
 
     memory_pct = std::clamp(memory_pct, 0.01, 0.95);
@@ -101,6 +103,8 @@ void RamEngine::start(RamPattern pattern, double memory_pct, int passes) {
 }
 
 void RamEngine::stop() {
+    std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
     stop_requested_.store(true);
     if (worker_.joinable()) {
         worker_.join();

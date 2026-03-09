@@ -11,22 +11,22 @@
 
 namespace occt {
 
-bool ReportManager::save_png(const TestResults& results, const QString& path)
+bool ReportManager::save_png(const TestResults& results, const QString& path) const
 {
     return PngReport::save(results, path);
 }
 
-bool ReportManager::save_html(const TestResults& results, const QString& path)
+bool ReportManager::save_html(const TestResults& results, const QString& path) const
 {
     return HtmlReport::save(results, path);
 }
 
-bool ReportManager::save_csv(const TestResults& results, const QString& path)
+bool ReportManager::save_csv(const TestResults& results, const QString& path) const
 {
     return CsvExporter::save_results(results.results, path);
 }
 
-bool ReportManager::save_json(const TestResults& results, const QString& path)
+bool ReportManager::save_json(const TestResults& results, const QString& path) const
 {
     QJsonObject root;
 

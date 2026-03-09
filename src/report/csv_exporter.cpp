@@ -5,10 +5,10 @@
 
 namespace occt {
 
-static void write_utf8_bom(QFile& file)
+static bool write_utf8_bom(QFile& file)
 {
     // UTF-8 BOM: EF BB BF
-    file.write("\xEF\xBB\xBF", 3);
+    return file.write("\xEF\xBB\xBF", 3) == 3;
 }
 
 static QString escape_csv(const QString& s)
@@ -27,7 +27,8 @@ bool CsvExporter::save_sensors(const QVector<SensorDataPoint>& data, const QStri
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
         return false;
 
-    write_utf8_bom(file);
+    if (!write_utf8_bom(file))
+        return false;
 
     QTextStream out(&file);
     out.setEncoding(QStringConverter::Utf8);
@@ -51,7 +52,8 @@ bool CsvExporter::save_results(const QVector<TestResultData>& data, const QStrin
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
         return false;
 
-    write_utf8_bom(file);
+    if (!write_utf8_bom(file))
+        return false;
 
     QTextStream out(&file);
     out.setEncoding(QStringConverter::Utf8);

@@ -3,6 +3,7 @@
 #include "cpu/linpack.h"
 #include "cpu/prime.h"
 #include "../utils/cpuid.h"
+#include "../monitor/sensor_manager.h"
 
 #include <algorithm>
 #include <chrono>
@@ -75,8 +76,20 @@ void CpuEngine::set_thread_affinity(int core_id) {
 
 void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
                        LoadPattern pattern, CpuIntensityMode intensity) {
+    std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
     if (running_.load()) {
-        stop();
+        // Must release start_stop_mutex_ before calling stop() to avoid deadlock,
+        // but since we hold it, do the stop logic inline instead.
+        running_.store(false);
+
+        for (auto& w : workers_) {
+            if (w.joinable()) w.join();
+        }
+        workers_.clear();
+
+        if (cycling_thread_.joinable()) cycling_thread_.join();
+        if (metrics_thread_.joinable()) metrics_thread_.join();
     }
 
     mode_ = mode;
@@ -151,6 +164,8 @@ void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
 }
 
 void CpuEngine::stop() {
+    std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
     running_.store(false);
 
     for (auto& w : workers_) {
@@ -181,6 +196,10 @@ CpuMetrics CpuEngine::get_metrics() const {
 void CpuEngine::set_metrics_callback(MetricsCallback cb) {
     std::lock_guard<std::mutex> lock(metrics_mutex_);
     metrics_callback_ = std::move(cb);
+}
+
+void CpuEngine::set_sensor_manager(SensorManager* mgr) {
+    sensor_mgr_ = mgr;
 }
 
 void CpuEngine::worker_thread(int thread_id, int core_id) {
@@ -613,6 +632,12 @@ void CpuEngine::metrics_thread_func() {
         for (int i = 0; i < num_threads_; ++i) {
             metrics.core_has_error[i] = core_error_flags_[i].load(std::memory_order_relaxed);
             metrics.per_core_error_count[i] = core_error_counts_[i].load(std::memory_order_relaxed);
+        }
+
+        // Read temperature and power from SensorManager
+        if (sensor_mgr_) {
+            metrics.temperature = sensor_mgr_->get_cpu_temperature();
+            metrics.power_watts = sensor_mgr_->get_cpu_power();
         }
 
         // Track peak GFLOPS

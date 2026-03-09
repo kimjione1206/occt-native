@@ -1,4 +1,5 @@
 #include "dashboard_panel.h"
+#include "panel_styles.h"
 #include "../widgets/circular_gauge.h"
 #include "../../monitor/system_info.h"
 #include "../../monitor/sensor_manager.h"
@@ -64,11 +65,6 @@ void DashboardPanel::setupUi()
     auto* cardsLayout = new QHBoxLayout();
     cardsLayout->setSpacing(16);
 
-    cpuInfoLabel_ = new QLabel("Detecting...");
-    gpuInfoLabel_ = new QLabel("Detecting...");
-    ramInfoLabel_ = new QLabel("Detecting...");
-    osInfoLabel_  = new QLabel("Detecting...");
-
     auto sysInfo = occt::collect_system_info();
 
     QString cpuModel = sysInfo.cpu.model.isEmpty()
@@ -108,7 +104,7 @@ void DashboardPanel::setupUi()
     // Gauges row
     auto* gaugesFrame = new QFrame(container);
     gaugesFrame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }");
+        styles::kSectionFrame);
     auto* gaugesLayout = new QHBoxLayout(gaugesFrame);
     gaugesLayout->setContentsMargins(24, 20, 24, 20);
     gaugesLayout->setSpacing(40);
@@ -185,7 +181,7 @@ QFrame* DashboardPanel::createQuickStartSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -311,6 +307,21 @@ void DashboardPanel::updateGauges()
         if (memTotal > 0) {
             double ramPct = 100.0 * (memTotal - memAvailable) / memTotal;
             ramGauge_->setValue(ramPct);
+        }
+    }
+#endif
+
+#ifdef Q_OS_WIN
+    // Use SensorManager for CPU and memory data on Windows
+    if (sensorMgr_) {
+        auto readings = sensorMgr_->get_all_readings();
+        for (const auto& r : readings) {
+            if (r.name == "CPU Usage" && r.category == "CPU" && r.unit == "%") {
+                cpuGauge_->setValue(r.value);
+            }
+            if (r.name == "Memory Load" && r.category == "System" && r.unit == "%") {
+                ramGauge_->setValue(r.value);
+            }
         }
     }
 #endif

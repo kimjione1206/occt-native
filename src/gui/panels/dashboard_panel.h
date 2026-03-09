@@ -38,12 +38,6 @@ private:
     QFrame* createInfoCard(const QString& title, const QString& value, const QString& detail);
     QFrame* createQuickStartSection();
 
-    // System info cards
-    QLabel* cpuInfoLabel_ = nullptr;
-    QLabel* gpuInfoLabel_ = nullptr;
-    QLabel* ramInfoLabel_ = nullptr;
-    QLabel* osInfoLabel_ = nullptr;
-
     // Gauges
     CircularGauge* cpuGauge_ = nullptr;
     CircularGauge* ramGauge_ = nullptr;

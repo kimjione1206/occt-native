@@ -152,6 +152,8 @@ __kernel void alternating_pattern_verify(__global uint* buffer, __global uint* e
 // ─── Impl (PImpl) ────────────────────────────────────────────────────────────
 
 struct GpuEngine::Impl {
+    GpuEngine* owner = nullptr;  // back-pointer for IEngine base access
+
 #ifdef OCCT_HAS_OPENCL
     gpu::OpenCLContext cl_ctx;
     std::vector<gpu::OpenCLContext::DeviceEntry> devices;
@@ -186,6 +188,7 @@ struct GpuEngine::Impl {
 
     std::atomic<bool> running{false};
     std::thread worker_thread;
+    std::mutex start_stop_mutex;
     GpuStressMode current_mode = GpuStressMode::MATRIX_MUL;
     int duration_secs = 0;
 
@@ -195,7 +198,6 @@ struct GpuEngine::Impl {
 
     bool initialized = false;
     bool opencl_available = false;
-    std::atomic<bool> stop_on_error_{false};
     std::string last_error;
 
 #ifdef OCCT_HAS_VULKAN
@@ -1062,7 +1064,7 @@ struct GpuEngine::Impl {
             cb_copy(snapshot);
         }
 
-        if (stop_on_error_.load(std::memory_order_relaxed) && errors > 0) {
+        if (owner && owner->stop_on_error() && errors > 0) {
             running.store(false);
         }
     }
@@ -1139,7 +1141,9 @@ struct GpuEngine::Impl {
 
 // ─── GpuEngine public interface ──────────────────────────────────────────────
 
-GpuEngine::GpuEngine() : impl_(std::make_unique<Impl>()) {}
+GpuEngine::GpuEngine() : impl_(std::make_unique<Impl>()) {
+    impl_->owner = this;
+}
 
 GpuEngine::~GpuEngine() {
     stop();
@@ -1208,6 +1212,8 @@ void GpuEngine::select_gpu(int index) {
 }
 
 bool GpuEngine::start(GpuStressMode mode, int duration_secs) {
+    std::lock_guard<std::mutex> guard(impl_->start_stop_mutex);
+
     if (impl_->running.load()) {
         impl_->last_error = "GPU test already running";
         return false;
@@ -1256,6 +1262,8 @@ bool GpuEngine::start(GpuStressMode mode, int duration_secs) {
 }
 
 void GpuEngine::stop() {
+    std::lock_guard<std::mutex> guard(impl_->start_stop_mutex);
+
     impl_->running.store(false);
     if (impl_->worker_thread.joinable()) {
         impl_->worker_thread.join();
@@ -1278,14 +1286,6 @@ std::string GpuEngine::last_error() const {
 void GpuEngine::set_metrics_callback(MetricsCallback cb) {
     std::lock_guard<std::mutex> lock(impl_->metrics_mutex);
     impl_->metrics_cb = std::move(cb);
-}
-
-void GpuEngine::set_stop_on_error(bool enable) {
-    impl_->stop_on_error_.store(enable, std::memory_order_relaxed);
-}
-
-bool GpuEngine::stop_on_error() const {
-    return impl_->stop_on_error_.load(std::memory_order_relaxed);
 }
 
 } // namespace occt

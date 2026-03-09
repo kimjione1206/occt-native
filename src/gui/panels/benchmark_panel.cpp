@@ -1,4 +1,5 @@
 #include "benchmark_panel.h"
+#include "panel_styles.h"
 #include "../../engines/benchmark/cache_benchmark.h"
 #include "../../engines/benchmark/memory_benchmark.h"
 
@@ -48,7 +49,7 @@ QFrame* BenchmarkPanel::createControlSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QHBoxLayout(frame);
@@ -57,11 +58,11 @@ QFrame* BenchmarkPanel::createControlSection()
 
     auto* titleLayout = new QVBoxLayout();
     auto* title = new QLabel("Cache & Memory Benchmark", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     titleLayout->addWidget(title);
 
     statusLabel_ = new QLabel("Ready to run benchmark", frame);
-    statusLabel_->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    statusLabel_->setStyleSheet(styles::kPanelSubtitle);
     titleLayout->addWidget(statusLabel_);
 
     layout->addLayout(titleLayout, 1);
@@ -84,7 +85,7 @@ QFrame* BenchmarkPanel::createLatencySection()
 {
     latencyFrame_ = new QFrame();
     latencyFrame_->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(latencyFrame_);
@@ -92,7 +93,7 @@ QFrame* BenchmarkPanel::createLatencySection()
     layout->setSpacing(10);
 
     auto* title = new QLabel("Cache Latency", latencyFrame_);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     auto createLatRow = [this, layout](const QString& label, QLabel*& valLabel, QProgressBar*& bar) {
@@ -139,7 +140,7 @@ QFrame* BenchmarkPanel::createBandwidthSection()
 {
     bwFrame_ = new QFrame();
     bwFrame_->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(bwFrame_);
@@ -147,7 +148,7 @@ QFrame* BenchmarkPanel::createBandwidthSection()
     layout->setSpacing(10);
 
     auto* title = new QLabel("Cache Bandwidth (Read)", bwFrame_);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     auto createBwRow = [this, layout](const QString& label, QLabel*& valLabel, QProgressBar*& bar) {
@@ -194,7 +195,7 @@ QFrame* BenchmarkPanel::createMemorySection()
 {
     memFrame_ = new QFrame();
     memFrame_->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(memFrame_);
@@ -202,22 +203,22 @@ QFrame* BenchmarkPanel::createMemorySection()
     layout->setSpacing(10);
 
     auto* title = new QLabel("Memory Benchmark", memFrame_);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     auto createResultRow = [this, layout](const QString& label) -> QLabel* {
         auto* row = new QFrame(memFrame_);
-        row->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        row->setStyleSheet(styles::kCardFrame);
         auto* rl = new QHBoxLayout(row);
         rl->setContentsMargins(12, 8, 12, 8);
 
         auto* lbl = new QLabel(label, row);
-        lbl->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kPanelSubtitle);
         rl->addWidget(lbl);
         rl->addStretch();
 
         auto* val = new QLabel("--", row);
-        val->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+        val->setStyleSheet(styles::kSectionTitle);
         rl->addWidget(val);
 
         layout->addWidget(row);

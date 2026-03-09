@@ -14,7 +14,9 @@
 #include <QMenu>
 #include <QAction>
 
-namespace occt { class SensorManager; }
+#include <memory>
+
+namespace occt { class SensorManager; class SafetyGuardian; }
 
 namespace occt { namespace gui {
 
@@ -52,6 +54,7 @@ private:
     QVBoxLayout* sidebarLayout_ = nullptr;
     QStackedWidget* contentStack_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLabel* timeLabel_ = nullptr;
     QTimer* statusTimer_ = nullptr;
 
     QMap<QString, QPushButton*> navButtons_;
@@ -59,7 +62,8 @@ private:
     QString currentPanel_;
 
     ResultsPanel* resultsPanel_ = nullptr;
-    SensorManager* sensorMgr_ = nullptr;
+    std::unique_ptr<SensorManager> sensorMgr_;
+    std::unique_ptr<SafetyGuardian> safetyGuardian_;
 };
 
 }} // namespace occt::gui

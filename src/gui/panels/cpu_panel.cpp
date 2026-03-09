@@ -1,4 +1,5 @@
 #include "cpu_panel.h"
+#include "panel_styles.h"
 #include "../widgets/realtime_chart.h"
 #include "../../engines/cpu_engine.h"
 #include "../../monitor/sensor_manager.h"
@@ -28,6 +29,11 @@ CpuPanel::~CpuPanel()
     }
 }
 
+IEngine* CpuPanel::engine() const
+{
+    return engine_.get();
+}
+
 void CpuPanel::setupUi()
 {
     auto* mainLayout = new QHBoxLayout(this);
@@ -45,9 +51,7 @@ QFrame* CpuPanel::createSettingsSection()
 {
     auto* frame = new QFrame();
     frame->setFixedWidth(320);
-    frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
-    );
+    frame->setStyleSheet(styles::kSectionFrame);
 
     auto* layout = new QVBoxLayout(frame);
     layout->setContentsMargins(20, 20, 20, 20);
@@ -55,18 +59,18 @@ QFrame* CpuPanel::createSettingsSection()
 
     // Title
     auto* title = new QLabel("CPU Stress Test", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Configure and run CPU stress tests", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Mode selection
     auto* modeLabel = new QLabel("Test Mode", frame);
-    modeLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    modeLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
@@ -84,7 +88,7 @@ QFrame* CpuPanel::createSettingsSection()
 
     // Load Pattern selection
     auto* patternLabel = new QLabel("Load Pattern", frame);
-    patternLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    patternLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(patternLabel);
 
     loadPatternCombo_ = new QComboBox(frame);
@@ -95,7 +99,7 @@ QFrame* CpuPanel::createSettingsSection()
 
     // Thread count
     auto* threadLabel = new QLabel("Threads", frame);
-    threadLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    threadLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(threadLabel);
 
     int maxThreads = QThread::idealThreadCount();
@@ -109,19 +113,19 @@ QFrame* CpuPanel::createSettingsSection()
     threadValueLabel_ = new QLabel(QString::number(maxThreads), frame);
     threadValueLabel_->setFixedWidth(30);
     threadValueLabel_->setAlignment(Qt::AlignCenter);
-    threadValueLabel_->setStyleSheet("color: #F0F6FC; font-weight: bold; border: none; background: transparent;");
+    threadValueLabel_->setStyleSheet(styles::kStatusIdle);
 
     threadRow->addWidget(threadSlider_, 1);
     threadRow->addWidget(threadValueLabel_);
     layout->addLayout(threadRow);
 
     auto* threadInfo = new QLabel(QString("Available: %1 logical cores").arg(maxThreads), frame);
-    threadInfo->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+    threadInfo->setStyleSheet(styles::kSmallInfo);
     layout->addWidget(threadInfo);
 
     // Duration
     auto* durationLabel = new QLabel("Duration", frame);
-    durationLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    durationLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
@@ -141,9 +145,7 @@ QFrame* CpuPanel::createSettingsSection()
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
+        styles::kStartButton
     );
     connect(startStopBtn_, &QPushButton::clicked, this, &CpuPanel::onStartStopClicked);
     layout->addWidget(startStopBtn_);
@@ -157,7 +159,7 @@ QFrame* CpuPanel::createMonitoringSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -166,7 +168,7 @@ QFrame* CpuPanel::createMonitoringSection()
 
     // Title
     auto* title = new QLabel("Real-time Monitoring", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Metrics row
@@ -175,13 +177,13 @@ QFrame* CpuPanel::createMonitoringSection()
 
     auto createMetric = [frame](const QString& label, const QString& initVal) -> QLabel* {
         auto* card = new QFrame(frame);
-        card->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        card->setStyleSheet(styles::kCardFrame);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 8, 12, 8);
         auto* lbl = new QLabel(label, card);
-        lbl->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kSmallInfo);
         auto* val = new QLabel(initVal, card);
-        val->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+        val->setStyleSheet(styles::kMetricValue);
         cl->addWidget(lbl);
         cl->addWidget(val);
         return val;
@@ -198,11 +200,11 @@ QFrame* CpuPanel::createMonitoringSection()
 
     // Error count metric (in red)
     auto* errorCard = new QFrame(frame);
-    errorCard->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+    errorCard->setStyleSheet(styles::kCardFrame);
     auto* ecl = new QVBoxLayout(errorCard);
     ecl->setContentsMargins(12, 8, 12, 8);
     auto* errLabel = new QLabel("Errors", errorCard);
-    errLabel->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+    errLabel->setStyleSheet(styles::kSmallInfo);
     errorCountLabel_ = new QLabel("0", errorCard);
     errorCountLabel_->setStyleSheet("color: #27AE60; font-size: 18px; font-weight: bold; border: none; background: transparent;");
     ecl->addWidget(errLabel);
@@ -221,11 +223,11 @@ QFrame* CpuPanel::createMonitoringSection()
 
     // Per-core error status grid
     auto* coreTitle = new QLabel("Per-Core Status", frame);
-    coreTitle->setStyleSheet("color: #F0F6FC; font-size: 14px; font-weight: bold; border: none; background: transparent;");
+    coreTitle->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(coreTitle);
 
     coreGridFrame_ = new QFrame(frame);
-    coreGridFrame_->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+    coreGridFrame_->setStyleSheet(styles::kCardFrame);
     coreGridLayout_ = new QGridLayout(coreGridFrame_);
     coreGridLayout_->setContentsMargins(12, 12, 12, 12);
     coreGridLayout_->setSpacing(6);
@@ -237,13 +239,13 @@ QFrame* CpuPanel::createMonitoringSection()
 
     // Status bar
     auto* statusFrame = new QFrame(frame);
-    statusFrame->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+    statusFrame->setStyleSheet(styles::kCardFrame);
     auto* statusLayout = new QHBoxLayout(statusFrame);
     statusLayout->setContentsMargins(12, 8, 12, 8);
 
-    auto* statusIcon = new QLabel("Idle", statusFrame);
-    statusIcon->setStyleSheet("color: #8B949E; font-weight: bold; border: none; background: transparent;");
-    statusLayout->addWidget(statusIcon);
+    statusLabel_ = new QLabel("Idle", statusFrame);
+    statusLabel_->setStyleSheet(styles::kStatusIdle);
+    statusLayout->addWidget(statusLabel_);
     statusLayout->addStretch();
 
     layout->addWidget(statusFrame);
@@ -310,6 +312,9 @@ void CpuPanel::updateErrorStatus(int errorCount, const std::vector<bool>& coreEr
 void CpuPanel::setSensorManager(SensorManager* mgr)
 {
     sensorMgr_ = mgr;
+    if (engine_) {
+        engine_->set_sensor_manager(mgr);
+    }
 }
 
 void CpuPanel::onStartStopClicked()
@@ -319,10 +324,13 @@ void CpuPanel::onStartStopClicked()
     if (isRunning_) {
         startStopBtn_->setText("Stop Test");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E74C3C; }"
+            styles::kStopButton
         );
+
+        // Update status label and reset chart for new test
+        statusLabel_->setText("Running");
+        statusLabel_->setStyleSheet(styles::kStatusRunning);
+        gflopsChart_->clear();
 
         // Rebuild core grid for selected thread count
         int threads = threadSlider_->value();
@@ -363,11 +371,11 @@ void CpuPanel::onStartStopClicked()
                                 threads, durationSec);
     } else {
         startStopBtn_->setText("Start Test");
-        startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #27AE60; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2ECC71; }"
-        );
+        startStopBtn_->setStyleSheet(styles::kStartButton);
+
+        // Update status label
+        statusLabel_->setText("Idle");
+        statusLabel_->setStyleSheet(styles::kStatusIdle);
 
         // Stop engine
         engine_->stop();
@@ -388,11 +396,9 @@ void CpuPanel::updateMonitoring()
         if (isRunning_) {
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
-            startStopBtn_->setStyleSheet(
-                "QPushButton { background-color: #27AE60; color: white; border: none; "
-                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #2ECC71; }"
-            );
+            startStopBtn_->setStyleSheet(styles::kStartButton);
+            statusLabel_->setText("Idle");
+            statusLabel_->setStyleSheet(styles::kStatusIdle);
             monitorTimer_->stop();
         }
         return;

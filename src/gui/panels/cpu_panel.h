@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace occt {
+class IEngine;
 class CpuEngine;
 class SensorManager;
 }
@@ -33,6 +34,9 @@ public:
 
     // Set SensorManager for temperature/power fallback
     void setSensorManager(SensorManager* mgr);
+
+    /// Return a raw pointer to the underlying engine (for SafetyGuardian registration).
+    IEngine* engine() const;
 
 signals:
     void testStartRequested(const QString& mode, const QString& loadPattern,
@@ -71,6 +75,7 @@ private:
     QLabel* powerLabel_ = nullptr;
     QLabel* freqLabel_ = nullptr;
     QLabel* errorCountLabel_ = nullptr;
+    QLabel* statusLabel_ = nullptr;
 
     // Per-core error grid
     QFrame* coreGridFrame_ = nullptr;

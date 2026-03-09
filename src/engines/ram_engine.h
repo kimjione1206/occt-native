@@ -78,6 +78,7 @@ private:
     size_t get_total_physical_ram() const;
 
     std::thread worker_;
+    std::mutex start_stop_mutex_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
     std::atomic<bool> locked_pages_{false}; // Whether memory pages were successfully locked

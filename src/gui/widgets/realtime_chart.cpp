@@ -129,6 +129,7 @@ void RealtimeChart::drawYAxis(QPainter& painter, const QRectF& plotArea)
 void RealtimeChart::drawLine(QPainter& painter, const QRectF& plotArea)
 {
     if (data_.size() < 2) return;
+    if (maxPoints_ < 2) return;
 
     double range = maxY_ - minY_;
     if (range < 0.001) range = 1.0;

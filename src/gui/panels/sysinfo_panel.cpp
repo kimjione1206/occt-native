@@ -1,4 +1,5 @@
 #include "sysinfo_panel.h"
+#include "panel_styles.h"
 #include "../../monitor/system_info.h"
 
 #include <QHBoxLayout>
@@ -20,7 +21,7 @@ QFrame* SysInfoPanel::createSection(const QString& title,
 {
     auto* frame = new QFrame(this);
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }");
+        styles::kSectionFrame);
 
     auto* layout = new QVBoxLayout(frame);
     layout->setContentsMargins(16, 12, 16, 12);

@@ -4,6 +4,8 @@
 #include <QSettings>
 #include <QVariantMap>
 
+#include <memory>
+
 namespace occt { namespace utils {
 
 class AppConfig {
@@ -41,7 +43,7 @@ private:
     QVariantMap readGroup(const QString& group) const;
     void writeGroup(const QString& group, const QVariantMap& map);
 
-    QSettings* settings_;
+    std::unique_ptr<QSettings> settings_;
 };
 
 }} // namespace occt::utils

@@ -1,4 +1,5 @@
 #include "schedule_panel.h"
+#include "panel_styles.h"
 
 #include "scheduler/test_scheduler.h"
 #include "scheduler/preset_schedules.h"
@@ -50,7 +51,7 @@ QFrame* SchedulePanel::createPresetSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -58,15 +59,15 @@ QFrame* SchedulePanel::createPresetSection()
     layout->setSpacing(12);
 
     auto* title = new QLabel("Test Schedule", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Select a preset or build a custom schedule", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     auto* presetLabel = new QLabel("Preset Schedule", frame);
-    presetLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    presetLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(presetLabel);
 
     presetCombo_ = new QComboBox(frame);
@@ -80,7 +81,7 @@ QFrame* SchedulePanel::createPresetSection()
     layout->addWidget(presetCombo_);
 
     presetInfoLabel_ = new QLabel("", frame);
-    presetInfoLabel_->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+    presetInfoLabel_->setStyleSheet(styles::kSmallInfo);
     presetInfoLabel_->setWordWrap(true);
     layout->addWidget(presetInfoLabel_);
 
@@ -91,7 +92,7 @@ QFrame* SchedulePanel::createCustomSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -99,7 +100,7 @@ QFrame* SchedulePanel::createCustomSection()
     layout->setSpacing(10);
 
     auto* title = new QLabel("Schedule Steps", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 14px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     stepList_ = new QListWidget(frame);
@@ -188,7 +189,7 @@ QFrame* SchedulePanel::createProgressSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -196,12 +197,12 @@ QFrame* SchedulePanel::createProgressSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("Schedule Progress", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Overall progress
     auto* progressLabel = new QLabel("Overall Progress", frame);
-    progressLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    progressLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(progressLabel);
 
     overallProgress_ = new QProgressBar(frame);
@@ -235,11 +236,7 @@ QFrame* SchedulePanel::createProgressSection()
     startStopBtn_ = new QPushButton("Start Schedule", frame);
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
-    startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
-    );
+    startStopBtn_->setStyleSheet(styles::kStartButton);
     connect(startStopBtn_, &QPushButton::clicked, this, &SchedulePanel::onStartStopClicked);
     layout->addWidget(startStopBtn_);
 
@@ -385,9 +382,7 @@ void SchedulePanel::onStartStopClicked()
         isRunning_ = false;
         startStopBtn_->setText("Start Schedule");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #27AE60; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2ECC71; }"
+            styles::kStartButton
         );
         currentStepLabel_->setText("Schedule stopped");
     } else {
@@ -401,9 +396,7 @@ void SchedulePanel::onStartStopClicked()
         overallProgress_->setValue(0);
         startStopBtn_->setText("Stop Schedule");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E74C3C; }"
+            styles::kStopButton
         );
         scheduler_->start();
     }
@@ -432,11 +425,7 @@ void SchedulePanel::onScheduleCompleted(bool all_passed, int total_errors)
 {
     isRunning_ = false;
     startStopBtn_->setText("Start Schedule");
-    startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
-    );
+    startStopBtn_->setStyleSheet(styles::kStartButton);
     overallProgress_->setValue(100);
 
     QString summary = all_passed ? "ALL PASSED" : "FAILED";

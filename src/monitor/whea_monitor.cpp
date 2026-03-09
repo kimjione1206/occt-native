@@ -13,6 +13,20 @@
 
 namespace occt {
 
+// ─── WHEA Monitor constants ─────────────────────────────────────────────────
+
+#ifdef _WIN32
+// Number of events to fetch per EvtNext call
+static constexpr DWORD WHEA_EVENT_BATCH_SIZE = 16;
+
+// Maximum characters to keep from event XML description
+static constexpr int WHEA_DESCRIPTION_MAX_CHARS = 512;
+
+// Poll interval: total ~5 seconds between cycles (10 x 500 ms)
+static constexpr int WHEA_POLL_STEPS     = 10;
+static constexpr int WHEA_POLL_STEP_MS   = 500;
+#endif
+
 // ─── Constructor / Destructor ────────────────────────────────────────────────
 
 WheaMonitor::WheaMonitor(QObject* parent) : QObject(parent) {}
@@ -88,10 +102,10 @@ void WheaMonitor::poll_thread_func() {
             continue;
         }
 
-        EVT_HANDLE events[16];
+        EVT_HANDLE events[WHEA_EVENT_BATCH_SIZE];
         DWORD returned = 0;
 
-        while (EvtNext(hResults, 16, events, 1000, 0, &returned)) {
+        while (EvtNext(hResults, WHEA_EVENT_BATCH_SIZE, events, 1000, 0, &returned)) {
             for (DWORD i = 0; i < returned; ++i) {
                 // Render the event to get basic info
                 DWORD bufSize = 0;
@@ -114,9 +128,9 @@ void WheaMonitor::poll_thread_func() {
                             err.timestamp   = QDateTime::currentDateTime();
                             err.description = QString::fromWCharArray(buf.data(), static_cast<int>(bufSize / sizeof(wchar_t)));
 
-                            // Truncate description to first 512 chars for sanity
-                            if (err.description.length() > 512)
-                                err.description = err.description.left(512) + "...";
+                            // Truncate description for sanity
+                            if (err.description.length() > WHEA_DESCRIPTION_MAX_CHARS)
+                                err.description = err.description.left(WHEA_DESCRIPTION_MAX_CHARS) + "...";
 
                             error_count_.fetch_add(1);
                             {
@@ -144,8 +158,8 @@ void WheaMonitor::poll_thread_func() {
         first_pass = false;
 
         // Sleep before next poll cycle
-        for (int s = 0; s < 10 && running_.load(); ++s) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        for (int s = 0; s < WHEA_POLL_STEPS && running_.load(); ++s) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(WHEA_POLL_STEP_MS));
         }
     }
 }

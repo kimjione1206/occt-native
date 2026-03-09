@@ -12,7 +12,7 @@
 #include <QProgressBar>
 #include <memory>
 
-namespace occt { class GpuEngine; class SensorManager; }
+namespace occt { class GpuEngine; class IEngine; class SensorManager; }
 
 namespace occt { namespace gui {
 
@@ -28,6 +28,9 @@ public:
 
     /// Inject the sensor manager instance (owned externally).
     void setSensorManager(SensorManager* mgr);
+
+    /// Return the underlying engine as an IEngine pointer for SafetyGuardian registration.
+    IEngine* engine() const;
 
 signals:
     void testStartRequested(const QString& gpuDevice, const QString& mode, int durationSec);
@@ -51,7 +54,6 @@ private:
 
     // Settings
     QComboBox* gpuSelectCombo_ = nullptr;
-    QComboBox* backendCombo_ = nullptr;
     QComboBox* modeCombo_ = nullptr;
     QComboBox* durationCombo_ = nullptr;
     QPushButton* startStopBtn_ = nullptr;

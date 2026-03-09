@@ -1,4 +1,5 @@
 #include "ram_panel.h"
+#include "panel_styles.h"
 #include "../widgets/realtime_chart.h"
 #include "../../engines/ram_engine.h"
 
@@ -24,6 +25,11 @@ RamPanel::~RamPanel()
     }
 }
 
+IEngine* RamPanel::engine() const
+{
+    return engine_.get();
+}
+
 void RamPanel::setupUi()
 {
     auto* mainLayout = new QHBoxLayout(this);
@@ -39,7 +45,7 @@ QFrame* RamPanel::createSettingsSection()
     auto* frame = new QFrame();
     frame->setFixedWidth(320);
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -47,18 +53,18 @@ QFrame* RamPanel::createSettingsSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("RAM Test", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
     auto* subtitle = new QLabel("Memory integrity and bandwidth tests", frame);
-    subtitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Pattern selection
     auto* patternLabel = new QLabel("Test Pattern", frame);
-    patternLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    patternLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(patternLabel);
 
     patternCombo_ = new QComboBox(frame);
@@ -74,7 +80,7 @@ QFrame* RamPanel::createSettingsSection()
 
     // Memory allocation slider
     auto* memLabel = new QLabel("Memory Allocation", frame);
-    memLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    memLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(memLabel);
 
     auto* memRow = new QHBoxLayout();
@@ -86,7 +92,7 @@ QFrame* RamPanel::createSettingsSection()
     memValueLabel_ = new QLabel("50%", frame);
     memValueLabel_->setFixedWidth(40);
     memValueLabel_->setAlignment(Qt::AlignCenter);
-    memValueLabel_->setStyleSheet("color: #F0F6FC; font-weight: bold; border: none; background: transparent;");
+    memValueLabel_->setStyleSheet(styles::kStatusIdle);
 
     memRow->addWidget(memSlider_, 1);
     memRow->addWidget(memValueLabel_);
@@ -99,7 +105,7 @@ QFrame* RamPanel::createSettingsSection()
 
     // Passes
     auto* passesLabel = new QLabel("Number of Passes", frame);
-    passesLabel->setStyleSheet("color: #C9D1D9; font-weight: bold; border: none; background: transparent;");
+    passesLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(passesLabel);
 
     passesSpinBox_ = new QSpinBox(frame);
@@ -113,9 +119,7 @@ QFrame* RamPanel::createSettingsSection()
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
-        "QPushButton { background-color: #27AE60; color: white; border: none; "
-        "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #2ECC71; }"
+        styles::kStartButton
     );
     connect(startStopBtn_, &QPushButton::clicked, this, &RamPanel::onStartStopClicked);
     layout->addWidget(startStopBtn_);
@@ -129,7 +133,7 @@ QFrame* RamPanel::createMonitoringSection()
 {
     auto* frame = new QFrame();
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QVBoxLayout(frame);
@@ -137,7 +141,7 @@ QFrame* RamPanel::createMonitoringSection()
     layout->setSpacing(16);
 
     auto* title = new QLabel("RAM Test Monitoring", frame);
-    title->setStyleSheet("color: #F0F6FC; font-size: 16px; font-weight: bold; border: none; background: transparent;");
+    title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Metrics row
@@ -146,13 +150,13 @@ QFrame* RamPanel::createMonitoringSection()
 
     auto createMetric = [frame](const QString& label, const QString& val) -> QLabel* {
         auto* card = new QFrame(frame);
-        card->setStyleSheet("QFrame { background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; }");
+        card->setStyleSheet(styles::kCardFrame);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 8, 12, 8);
         auto* lbl = new QLabel(label, card);
-        lbl->setStyleSheet("color: #8B949E; font-size: 11px; border: none; background: transparent;");
+        lbl->setStyleSheet(styles::kSmallInfo);
         auto* v = new QLabel(val, card);
-        v->setStyleSheet("color: #F0F6FC; font-size: 18px; font-weight: bold; border: none; background: transparent;");
+        v->setStyleSheet(styles::kPanelTitle);
         cl->addWidget(lbl);
         cl->addWidget(v);
         return v;
@@ -169,7 +173,7 @@ QFrame* RamPanel::createMonitoringSection()
 
     // Test progress
     auto* progressTitle = new QLabel("Test Progress", frame);
-    progressTitle->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
+    progressTitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(progressTitle);
 
     testProgress_ = new QProgressBar(frame);
@@ -197,9 +201,7 @@ void RamPanel::onStartStopClicked()
     if (isRunning_) {
         startStopBtn_->setText("Stop Test");
         startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E74C3C; }"
+            styles::kStopButton
         );
 
         // Map combo index to RamPattern
@@ -224,11 +226,7 @@ void RamPanel::onStartStopClicked()
         emit testStartRequested(patternCombo_->currentText(), memSlider_->value(), passes);
     } else {
         startStopBtn_->setText("Start Test");
-        startStopBtn_->setStyleSheet(
-            "QPushButton { background-color: #27AE60; color: white; border: none; "
-            "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2ECC71; }"
-        );
+        startStopBtn_->setStyleSheet(styles::kStartButton);
 
         engine_->stop();
         monitorTimer_->stop();
@@ -248,11 +246,7 @@ void RamPanel::updateMonitoring()
         if (isRunning_) {
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
-            startStopBtn_->setStyleSheet(
-                "QPushButton { background-color: #27AE60; color: white; border: none; "
-                "border-radius: 6px; font-size: 16px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #2ECC71; }"
-            );
+            startStopBtn_->setStyleSheet(styles::kStartButton);
             monitorTimer_->stop();
         }
         return;

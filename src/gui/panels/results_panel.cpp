@@ -1,4 +1,5 @@
 #include "results_panel.h"
+#include "panel_styles.h"
 #include "report/report_manager.h"
 
 #include <QVBoxLayout>
@@ -62,7 +63,7 @@ void ResultsPanel::setupUi()
     // Details section
     auto* detailsFrame = new QFrame(this);
     detailsFrame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
     detailsFrame->setMinimumHeight(100);
 
@@ -90,7 +91,7 @@ QFrame* ResultsPanel::createToolbar()
 {
     auto* frame = new QFrame(this);
     frame->setStyleSheet(
-        "QFrame { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+        styles::kSectionFrame
     );
 
     auto* layout = new QHBoxLayout(frame);
