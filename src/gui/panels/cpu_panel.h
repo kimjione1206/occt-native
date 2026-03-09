@@ -14,6 +14,7 @@
 
 namespace occt {
 class CpuEngine;
+class SensorManager;
 }
 
 namespace occt { namespace gui {
@@ -29,6 +30,9 @@ public:
 
     // Update per-core error status from engine metrics
     void updateErrorStatus(int errorCount, const std::vector<bool>& coreErrors);
+
+    // Set SensorManager for temperature/power fallback
+    void setSensorManager(SensorManager* mgr);
 
 signals:
     void testStartRequested(const QString& mode, const QString& loadPattern,
@@ -48,6 +52,9 @@ private:
 
     // CPU Engine
     std::unique_ptr<CpuEngine> engine_;
+
+    // Sensor manager for temperature/power readings
+    SensorManager* sensorMgr_ = nullptr;
 
     // Settings
     QComboBox* modeCombo_ = nullptr;

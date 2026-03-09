@@ -11,6 +11,7 @@
 #include "panels/sysinfo_panel.h"
 #include "panels/schedule_panel.h"
 #include "panels/certificate_panel.h"
+#include "../monitor/sensor_manager.h"
 
 #include <QApplication>
 #include <QFile>
@@ -39,7 +40,14 @@ MainWindow::MainWindow(QWidget* parent)
     setActiveTab("dashboard");
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    if (sensorMgr_) {
+        sensorMgr_->stop();
+        delete sensorMgr_;
+        sensorMgr_ = nullptr;
+    }
+}
 
 void MainWindow::setupUi()
 {
@@ -219,6 +227,17 @@ void MainWindow::createPanels()
     for (auto it = panels_.begin(); it != panels_.end(); ++it) {
         contentStack_->addWidget(it.value());
     }
+
+    // Create shared SensorManager and distribute to panels that need sensor data
+    sensorMgr_ = new SensorManager();
+    if (sensorMgr_->initialize()) {
+        sensorMgr_->start_polling(500);
+    }
+
+    monitorPanel->setSensorManager(sensorMgr_);
+    cpuPanel->setSensorManager(sensorMgr_);
+    gpuPanel->setSensorManager(sensorMgr_);
+    dashboardPanel->setSensorManager(sensorMgr_);
 
     // Connect Dashboard quick-start buttons to navigate to the correct panels
     connect(dashboardPanel, &DashboardPanel::startCpuTest, this, [this]() {

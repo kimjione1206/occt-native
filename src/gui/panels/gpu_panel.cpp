@@ -2,6 +2,7 @@
 #include "../widgets/realtime_chart.h"
 #include "../widgets/circular_gauge.h"
 #include "../../engines/gpu_engine.h"
+#include "../../monitor/sensor_manager.h"
 
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -287,6 +288,11 @@ QFrame* GpuPanel::createMonitoringSection()
     layout->addWidget(gflopsChart_, 1);
 
     return frame;
+}
+
+void GpuPanel::setSensorManager(SensorManager* mgr)
+{
+    sensorMgr_ = mgr;
 }
 
 void GpuPanel::onModeChanged(int index)

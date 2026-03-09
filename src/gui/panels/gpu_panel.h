@@ -12,7 +12,7 @@
 #include <QProgressBar>
 #include <memory>
 
-namespace occt { class GpuEngine; }
+namespace occt { class GpuEngine; class SensorManager; }
 
 namespace occt { namespace gui {
 
@@ -25,6 +25,9 @@ class GpuPanel : public QWidget {
 public:
     explicit GpuPanel(QWidget* parent = nullptr);
     ~GpuPanel() override;
+
+    /// Inject the sensor manager instance (owned externally).
+    void setSensorManager(SensorManager* mgr);
 
 signals:
     void testStartRequested(const QString& gpuDevice, const QString& mode, int durationSec);
@@ -42,6 +45,9 @@ private:
 
     // GPU Engine
     std::unique_ptr<GpuEngine> engine_;
+
+    // Sensor manager for temperature readings
+    SensorManager* sensorMgr_ = nullptr;
 
     // Settings
     QComboBox* gpuSelectCombo_ = nullptr;

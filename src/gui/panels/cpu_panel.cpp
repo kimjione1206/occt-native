@@ -1,6 +1,7 @@
 #include "cpu_panel.h"
 #include "../widgets/realtime_chart.h"
 #include "../../engines/cpu_engine.h"
+#include "../../monitor/sensor_manager.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -306,6 +307,11 @@ void CpuPanel::updateErrorStatus(int errorCount, const std::vector<bool>& coreEr
     }
 }
 
+void CpuPanel::setSensorManager(SensorManager* mgr)
+{
+    sensorMgr_ = mgr;
+}
+
 void CpuPanel::onStartStopClicked()
 {
     isRunning_ = !isRunning_;
@@ -398,13 +404,31 @@ void CpuPanel::updateMonitoring()
     gflopsValueLabel_->setText(QString::number(m.gflops, 'f', 2));
     gflopsChart_->addPoint(m.gflops);
 
-    // Update temperature
-    if (m.temperature > 0)
-        tempLabel_->setText(QString::number(m.temperature, 'f', 1) + " C");
+    // Use SensorManager for temperature/power if engine doesn't provide them
+    double cpuTemp = m.temperature;
+    double cpuPower = m.power_watts;
 
-    // Update power
-    if (m.power_watts > 0)
-        powerLabel_->setText(QString::number(m.power_watts, 'f', 1) + " W");
+    if (sensorMgr_) {
+        if (cpuTemp <= 0) cpuTemp = sensorMgr_->get_cpu_temperature();
+        if (cpuPower <= 0) cpuPower = sensorMgr_->get_cpu_power();
+    }
+
+    if (cpuTemp > 0)
+        tempLabel_->setText(QString::number(cpuTemp, 'f', 1) + " \u00B0C");
+
+    if (cpuPower > 0)
+        powerLabel_->setText(QString::number(cpuPower, 'f', 1) + " W");
+
+    // Update CPU frequency from SensorManager if available
+    if (sensorMgr_) {
+        auto readings = sensorMgr_->get_all_readings();
+        for (const auto& r : readings) {
+            if (r.category == "CPU" && r.unit == "MHz" && r.value > 0) {
+                freqLabel_->setText(QString::number(r.value, 'f', 0) + " MHz");
+                break;
+            }
+        }
+    }
 
     // Update error status
     updateErrorStatus(m.error_count, m.core_has_error);

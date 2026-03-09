@@ -8,6 +8,10 @@
 #include <QTimer>
 #include <QFrame>
 
+namespace occt {
+class SensorManager;
+}
+
 namespace occt { namespace gui {
 
 class CircularGauge;
@@ -17,6 +21,9 @@ class DashboardPanel : public QWidget {
 
 public:
     explicit DashboardPanel(QWidget* parent = nullptr);
+
+    /// Inject the sensor manager instance (owned externally).
+    void setSensorManager(SensorManager* mgr);
 
 signals:
     void startCpuTest();
@@ -43,6 +50,8 @@ private:
     CircularGauge* gpuGauge_ = nullptr;
 
     QTimer* updateTimer_ = nullptr;
+
+    SensorManager* sensorMgr_ = nullptr;
 
     // For CPU usage delta calculation
     uint64_t prevIdleTicks_ = 0;

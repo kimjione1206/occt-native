@@ -14,6 +14,8 @@
 #include <QMenu>
 #include <QAction>
 
+namespace occt { class SensorManager; }
+
 namespace occt { namespace gui {
 
 class ResultsPanel;
@@ -57,6 +59,7 @@ private:
     QString currentPanel_;
 
     ResultsPanel* resultsPanel_ = nullptr;
+    SensorManager* sensorMgr_ = nullptr;
 };
 
 }} // namespace occt::gui

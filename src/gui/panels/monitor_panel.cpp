@@ -73,6 +73,8 @@ MonitorPanel::~MonitorPanel() {
 }
 
 void MonitorPanel::setSensorManager(SensorManager* mgr) {
+    if (!mgr) return;
+
     // If externally injected, stop and delete our own instance
     if (ownedSensorMgr_ && mgr != ownedSensorMgr_) {
         ownedSensorMgr_->stop();
@@ -80,6 +82,10 @@ void MonitorPanel::setSensorManager(SensorManager* mgr) {
         ownedSensorMgr_ = nullptr;
     }
     sensorMgr_ = mgr;
+
+    // Rebuild the sensor tree with live data from the new manager,
+    // replacing any placeholder entries that were added during construction.
+    rebuildSensorTree();
 }
 
 void MonitorPanel::setWheaMonitor(WheaMonitor* whea) {

@@ -1,6 +1,9 @@
 #include "dashboard_panel.h"
 #include "../widgets/circular_gauge.h"
 #include "../../monitor/system_info.h"
+#include "../../monitor/sensor_manager.h"
+
+#include <algorithm>
 
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -227,6 +230,11 @@ QFrame* DashboardPanel::createQuickStartSection()
     return frame;
 }
 
+void DashboardPanel::setSensorManager(SensorManager* mgr)
+{
+    sensorMgr_ = mgr;
+}
+
 void DashboardPanel::updateGauges()
 {
 #ifdef Q_OS_MACOS
@@ -307,8 +315,14 @@ void DashboardPanel::updateGauges()
     }
 #endif
 
-    // GPU gauge: not directly available without vendor-specific APIs;
-    // leave at 0 unless SensorManager provides it in the future.
+    // GPU gauge: try SensorManager for GPU temperature or usage
+    if (sensorMgr_) {
+        double gpuTemp = sensorMgr_->get_gpu_temperature();
+        if (gpuTemp > 0) {
+            // Map temperature to gauge: 0-100°C -> 0-100%
+            gpuGauge_->setValue(std::min(gpuTemp, 100.0));
+        }
+    }
 }
 
 }} // namespace occt::gui
