@@ -243,12 +243,15 @@ void MainWindow::createPanels()
     sensorMgr_ = std::make_unique<SensorManager>();
     if (sensorMgr_->initialize()) {
         sensorMgr_->start_polling(500);
+    } else {
+        statusLabel_->setText("Sensor: initialization failed (admin privileges may be required)");
     }
 
     monitorPanel->setSensorManager(sensorMgr_.get());
     cpuPanel->setSensorManager(sensorMgr_.get());
     gpuPanel->setSensorManager(sensorMgr_.get());
     dashboardPanel->setSensorManager(sensorMgr_.get());
+    psuPanel->setSensorManager(sensorMgr_.get());
 
     // Set up SafetyGuardian and register all IEngine-based engines
     safetyGuardian_ = std::make_unique<SafetyGuardian>(sensorMgr_.get());

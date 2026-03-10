@@ -22,6 +22,8 @@ GpuPanel::GpuPanel(QWidget* parent)
         startStopBtn_->setEnabled(false);
         startStopBtn_->setText("GPU Not Available");
         startStopBtn_->setStyleSheet("background-color: #555; color: #999;");
+        statusBanner_->setText("GPU backend not available (OpenCL/Vulkan not enabled in this build)");
+        statusBanner_->setVisible(true);
     }
 
     monitorTimer_ = new QTimer(this);
@@ -222,6 +224,13 @@ QFrame* GpuPanel::createMonitoringSection()
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
+    // Status banner (hidden by default, shown when GPU backend unavailable or on error)
+    statusBanner_ = new QLabel(frame);
+    statusBanner_->setStyleSheet(styles::kWarningBanner);
+    statusBanner_->setWordWrap(true);
+    statusBanner_->setVisible(false);
+    layout->addWidget(statusBanner_);
+
     // Top metrics row
     auto* metricsLayout = new QHBoxLayout();
     metricsLayout->setSpacing(16);
@@ -262,6 +271,8 @@ QFrame* GpuPanel::createMonitoringSection()
     metricsGrid->addWidget(fpsLabel_->parentWidget());
     artifactLabel_ = createMetricCard("Artifacts", "0");
     metricsGrid->addWidget(artifactLabel_->parentWidget());
+    vramErrorsLabel_ = createMetricCard("VRAM Errors", "0");
+    metricsGrid->addWidget(vramErrorsLabel_->parentWidget());
 
     metricsLayout->addLayout(metricsGrid, 1);
     layout->addLayout(metricsLayout);
@@ -363,13 +374,20 @@ void GpuPanel::onStartStopClicked()
 
         // Start engine
         if (!engine_->start(mode, durationSec)) {
-            QMessageBox::warning(this, "GPU Test Error",
-                QString::fromStdString(engine_->last_error()));
+            QString errMsg = QString::fromStdString(engine_->last_error());
+            QMessageBox::warning(this, "GPU Test Error", errMsg);
+            statusBanner_->setText(errMsg.isEmpty()
+                ? "GPU backend not available (OpenCL/Vulkan not enabled in this build)"
+                : errMsg);
+            statusBanner_->setVisible(true);
             isRunning_ = false;
             startStopBtn_->setText("Start Test");
             startStopBtn_->setStyleSheet(styles::kStartButton);
             return;
         }
+
+        // Clear any previous error banner
+        statusBanner_->setVisible(false);
 
         // Start monitoring timer
         monitorTimer_->start(500);
@@ -424,8 +442,29 @@ void GpuPanel::updateMonitoring()
     if (m.fps > 0)
         fpsLabel_->setText(QString::number(m.fps, 'f', 1));
 
-    // Update artifact count
+    // Update artifact count with error styling
     artifactLabel_->setText(QString::number(m.artifact_count));
+    if (m.artifact_count > 0) {
+        artifactLabel_->setStyleSheet(styles::kErrorText);
+    } else {
+        artifactLabel_->setStyleSheet(styles::kSectionTitle);
+    }
+
+    // Update VRAM errors with error styling
+    vramErrorsLabel_->setText(QString::number(m.vram_errors));
+    if (m.vram_errors > 0) {
+        vramErrorsLabel_->setStyleSheet(styles::kErrorText);
+        if (!statusBanner_->isVisible()) {
+            statusBanner_->setText(QString("GPU errors detected: %1 VRAM error(s), %2 artifact(s)")
+                .arg(m.vram_errors).arg(m.artifact_count));
+            statusBanner_->setStyleSheet(
+                "color: #E74C3C; font-size: 13px; font-weight: bold; border: 1px solid #E74C3C; "
+                "border-radius: 6px; padding: 8px; background-color: rgba(231,76,60,0.1);");
+            statusBanner_->setVisible(true);
+        }
+    } else {
+        vramErrorsLabel_->setStyleSheet(styles::kSectionTitle);
+    }
 }
 
 }} // namespace occt::gui

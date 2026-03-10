@@ -4,6 +4,8 @@
 #include "cpu_engine.h"
 #include "gpu_engine.h"
 
+namespace occt { class SensorManager; } // forward declaration
+
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -54,6 +56,9 @@ public:
 
     /// Whether to use all available GPUs (default: false, uses first GPU only).
     void set_use_all_gpus(bool use_all) { use_all_gpus_ = use_all; }
+
+    /// Set SensorManager so the internal CpuEngine can read power/temperature.
+    void set_sensor_manager(SensorManager* mgr) { cpu_.set_sensor_manager(mgr); }
 
 private:
     void controller_thread_func(PsuLoadPattern pattern, int duration_secs);

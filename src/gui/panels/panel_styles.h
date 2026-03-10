@@ -69,4 +69,13 @@ inline constexpr const char* kStatusIdle =
 inline constexpr const char* kStatusRunning =
     "color: #27AE60; font-weight: bold; border: none; background: transparent;";
 
+/// Error text (red, bold).
+inline constexpr const char* kErrorText =
+    "color: #E74C3C; font-size: 18px; font-weight: bold; border: none; background: transparent;";
+
+/// Warning / info banner (muted yellow on dark background).
+inline constexpr const char* kWarningBanner =
+    "color: #F39C12; font-size: 13px; font-weight: bold; border: 1px solid #F39C12; "
+    "border-radius: 6px; padding: 8px; background-color: rgba(243,156,18,0.1);";
+
 }}} // namespace occt::gui::styles

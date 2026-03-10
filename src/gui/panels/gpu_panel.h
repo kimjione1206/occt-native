@@ -75,6 +75,8 @@ private:
     QLabel* vramLabel_ = nullptr;
     QLabel* fpsLabel_ = nullptr;
     QLabel* artifactLabel_ = nullptr;
+    QLabel* vramErrorsLabel_ = nullptr;
+    QLabel* statusBanner_ = nullptr;
     QProgressBar* vramBar_ = nullptr;
 
     bool isRunning_ = false;

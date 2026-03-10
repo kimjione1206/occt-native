@@ -272,6 +272,7 @@ static PatternID pattern_for_block(uint32_t block_index) {
 void StorageEngine::verify_seq(const std::string& path, uint64_t file_size, int /*queue_depth*/) {
     const uint32_t total_blocks = static_cast<uint32_t>(file_size / VBLOCK);
     if (total_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     auto test_start = std::chrono::steady_clock::now();
     auto get_ns = [&]() -> uint64_t {
@@ -281,12 +282,25 @@ void StorageEngine::verify_seq(const std::string& path, uint64_t file_size, int 
 
     // ── Phase 1: Write ──────────────────────────────────────────────────────
     intptr_t fd = open_direct(path, false);
-    if (fd < 0) return;
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        return;
+    }
 
     uint8_t* block = alloc_aligned(VBLOCK);
     if (!block) { close_file(fd); return; }
 
     for (uint32_t i = 0; i < total_blocks && !stop_requested_.load(); ++i) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         PatternID pat = pattern_for_block(i);
         fill_verify_block(block, i, pat, 0, get_ns());
 
@@ -321,10 +335,24 @@ void StorageEngine::verify_seq(const std::string& path, uint64_t file_size, int 
     if (stop_requested_.load()) { free_aligned(block); return; }
 
     fd = open_direct(path, true);
-    if (fd < 0) { free_aligned(block); return; }
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        free_aligned(block);
+        return;
+    }
 
     // ── Phase 2: Verify ─────────────────────────────────────────────────────
     for (uint32_t i = 0; i < total_blocks && !stop_requested_.load(); ++i) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         uint64_t offset = static_cast<uint64_t>(i) * VBLOCK;
         if (!read_block_at(fd, block, offset)) {
             StorageError err{};
@@ -370,6 +398,7 @@ void StorageEngine::verify_seq(const std::string& path, uint64_t file_size, int 
 void StorageEngine::verify_rand(const std::string& path, uint64_t file_size, int queue_depth) {
     const uint32_t total_blocks = static_cast<uint32_t>(file_size / VBLOCK);
     if (total_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     auto test_start = std::chrono::steady_clock::now();
     auto get_ns = [&]() -> uint64_t {
@@ -385,12 +414,25 @@ void StorageEngine::verify_rand(const std::string& path, uint64_t file_size, int
 
     // ── Phase 1: Write in shuffled order ────────────────────────────────────
     intptr_t fd = open_direct(path, false);
-    if (fd < 0) return;
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        return;
+    }
 
     uint8_t* block = alloc_aligned(VBLOCK);
     if (!block) { close_file(fd); return; }
 
     for (uint32_t n = 0; n < total_blocks && !stop_requested_.load(); ++n) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         uint32_t i = indices[n];
         PatternID pat = pattern_for_block(i);
         fill_verify_block(block, i, pat, 0, get_ns());
@@ -426,9 +468,23 @@ void StorageEngine::verify_rand(const std::string& path, uint64_t file_size, int
 
     // ── Phase 2: Read+verify in same shuffled order ─────────────────────────
     fd = open_direct(path, true);
-    if (fd < 0) { free_aligned(block); return; }
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        free_aligned(block);
+        return;
+    }
 
     for (uint32_t n = 0; n < total_blocks && !stop_requested_.load(); ++n) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         uint32_t i = indices[n];
         uint64_t offset = static_cast<uint64_t>(i) * VBLOCK;
 
@@ -476,6 +532,7 @@ void StorageEngine::verify_rand(const std::string& path, uint64_t file_size, int
 void StorageEngine::fill_verify(const std::string& path, uint64_t file_size, int /*queue_depth*/) {
     const uint32_t total_blocks = static_cast<uint32_t>(file_size / VBLOCK);
     if (total_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     auto test_start = std::chrono::steady_clock::now();
     auto get_ns = [&]() -> uint64_t {
@@ -485,12 +542,25 @@ void StorageEngine::fill_verify(const std::string& path, uint64_t file_size, int
 
     // ── Phase 1: Sequential fill with cycling patterns ──────────────────────
     intptr_t fd = open_direct(path, false);
-    if (fd < 0) return;
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        return;
+    }
 
     uint8_t* block = alloc_aligned(VBLOCK);
     if (!block) { close_file(fd); return; }
 
     for (uint32_t i = 0; i < total_blocks && !stop_requested_.load(); ++i) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         // Cycle through all pattern types
         PatternID pat = static_cast<PatternID>(i % PATTERN_COUNT);
         fill_verify_block(block, i, pat, 0, get_ns());
@@ -526,9 +596,23 @@ void StorageEngine::fill_verify(const std::string& path, uint64_t file_size, int
 
     // ── Phase 2: Sequential verify all ──────────────────────────────────────
     fd = open_direct(path, true);
-    if (fd < 0) { free_aligned(block); return; }
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        free_aligned(block);
+        return;
+    }
 
     for (uint32_t i = 0; i < total_blocks && !stop_requested_.load(); ++i) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         uint64_t offset = static_cast<uint64_t>(i) * VBLOCK;
         if (!read_block_at(fd, block, offset)) {
             StorageError err{};
@@ -574,6 +658,7 @@ void StorageEngine::fill_verify(const std::string& path, uint64_t file_size, int
 void StorageEngine::butterfly_verify(const std::string& path, uint64_t file_size, int /*queue_depth*/) {
     const uint32_t total_blocks = static_cast<uint32_t>(file_size / VBLOCK);
     if (total_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     auto test_start = std::chrono::steady_clock::now();
     auto get_ns = [&]() -> uint64_t {
@@ -583,7 +668,15 @@ void StorageEngine::butterfly_verify(const std::string& path, uint64_t file_size
 
     // ── Phase 1: Converging write — low goes up, high goes down ─────────────
     intptr_t fd = open_direct(path, false);
-    if (fd < 0) return;
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        return;
+    }
 
     uint8_t* block_lo = alloc_aligned(VBLOCK);
     uint8_t* block_hi = alloc_aligned(VBLOCK);
@@ -599,6 +692,11 @@ void StorageEngine::butterfly_verify(const std::string& path, uint64_t file_size
     uint32_t writes_done = 0;
 
     while (low <= high && !stop_requested_.load()) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         // Write low block
         PatternID pat_lo = pattern_for_block(low);
         fill_verify_block(block_lo, low, pat_lo, 0, get_ns());
@@ -657,9 +755,23 @@ void StorageEngine::butterfly_verify(const std::string& path, uint64_t file_size
 
     // ── Phase 2: Sequential verify ──────────────────────────────────────────
     fd = open_direct(path, true);
-    if (fd < 0) { free_aligned(block_lo); return; }
+    if (fd < 0) {
+        last_error_ = "Failed to open test file: " + test_file_path_;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            metrics_.state = "error";
+            metrics_.error_count++;
+        }
+        free_aligned(block_lo);
+        return;
+    }
 
     for (uint32_t i = 0; i < total_blocks && !stop_requested_.load(); ++i) {
+        if (dur > 0) {
+            double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - test_start).count();
+            if (el >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
+
         uint64_t offset = static_cast<uint64_t>(i) * VBLOCK;
         if (!read_block_at(fd, block_lo, offset)) {
             StorageError err{};

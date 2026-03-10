@@ -97,11 +97,22 @@ private:
     [[maybe_unused]] bool has_wmi_   = false;
     bool has_nvml_  = false;
     bool has_adl_   = false;
+    bool adl_stub_logged_ = false;
 
     // NVML dynamic handles
     void* nvml_handle_ = nullptr;
     // ADL dynamic handles
     void* adl_handle_  = nullptr;
+
+#ifdef _WIN32
+    // Cached WMI COM objects (avoid re-creating every poll cycle)
+    void* wmi_locator_       = nullptr;  // IWbemLocator*
+    void* wmi_svc_root_wmi_  = nullptr;  // IWbemServices* for ROOT\WMI
+    void* wmi_svc_cimv2_     = nullptr;  // IWbemServices* for ROOT\CIMV2
+
+    void cleanup_wmi();
+    bool reconnect_wmi();
+#endif
 };
 
 } // namespace occt

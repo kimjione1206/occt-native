@@ -319,7 +319,7 @@ int CliRunner::run_test(const CliOptions& opts)
         std::string path = opts.storage_path.isEmpty() ? QDir::tempPath().toStdString() : opts.storage_path.toStdString();
         engine.set_block_size_kb(opts.block_size_kb);
         engine.set_direct_io(opts.direct_io);
-        if (!engine.start(smode, path, opts.file_size_mb, opts.queue_depth)) {
+        if (!engine.start(smode, path, opts.file_size_mb, opts.queue_depth, static_cast<uint64_t>(duration))) {
             emit_json("error", "storage", QVariant(QString::fromStdString(engine.last_error())));
             return 2;
         }
@@ -450,6 +450,9 @@ int CliRunner::run_test(const CliOptions& opts)
         else if (opts.mode == "ramp") psu_pattern = PsuLoadPattern::RAMP;
 
         if (opts.use_all_gpus) engine.set_use_all_gpus(true);
+
+        // Pass SensorManager so the internal CpuEngine can read power/temperature
+        engine.set_sensor_manager(&safety_sensors);
 
         PsuMetrics last_psu_metrics{};
         engine.set_metrics_callback([this, &last_psu_metrics](const PsuMetrics& m) {

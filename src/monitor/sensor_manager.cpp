@@ -81,6 +81,10 @@ SensorManager::SensorManager() = default;
 SensorManager::~SensorManager() {
     stop();
 
+#ifdef _WIN32
+    cleanup_wmi();
+#endif
+
     // Unload NVML
     if (nvml_handle_) {
 #if defined(_WIN32)
@@ -674,6 +678,52 @@ void SensorManager::poll_iokit() {}
 
 #if defined(_WIN32)
 
+void SensorManager::cleanup_wmi() {
+    if (wmi_svc_cimv2_) {
+        static_cast<IWbemServices*>(wmi_svc_cimv2_)->Release();
+        wmi_svc_cimv2_ = nullptr;
+    }
+    if (wmi_svc_root_wmi_) {
+        static_cast<IWbemServices*>(wmi_svc_root_wmi_)->Release();
+        wmi_svc_root_wmi_ = nullptr;
+    }
+    if (wmi_locator_) {
+        static_cast<IWbemLocator*>(wmi_locator_)->Release();
+        wmi_locator_ = nullptr;
+    }
+}
+
+bool SensorManager::reconnect_wmi() {
+    cleanup_wmi();
+
+    IWbemLocator* locator = nullptr;
+    HRESULT hr = CoCreateInstance(
+        CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER,
+        IID_IWbemLocator, reinterpret_cast<void**>(&locator));
+    if (FAILED(hr)) return false;
+    wmi_locator_ = locator;
+
+    // Connect to ROOT\WMI (for thermal zones)
+    IWbemServices* svc_root_wmi = nullptr;
+    hr = locator->ConnectServer(
+        _bstr_t(L"ROOT\\WMI"), nullptr, nullptr, nullptr,
+        0, nullptr, nullptr, &svc_root_wmi);
+    if (SUCCEEDED(hr)) {
+        wmi_svc_root_wmi_ = svc_root_wmi;
+    }
+
+    // Connect to ROOT\CIMV2 (for fans, CPU info, battery)
+    IWbemServices* svc_cimv2 = nullptr;
+    hr = locator->ConnectServer(
+        _bstr_t(L"ROOT\\CIMV2"), nullptr, nullptr, nullptr,
+        0, nullptr, nullptr, &svc_cimv2);
+    if (SUCCEEDED(hr)) {
+        wmi_svc_cimv2_ = svc_cimv2;
+    }
+
+    return (wmi_svc_root_wmi_ != nullptr || wmi_svc_cimv2_ != nullptr);
+}
+
 bool SensorManager::init_wmi() {
     HRESULT hr;
 
@@ -708,6 +758,13 @@ bool SensorManager::init_wmi() {
         // Don't return false - WMI might still work without explicit security setup
     }
 
+    // Cache WMI locator and service connections
+    if (!reconnect_wmi()) {
+        std::cerr << "[Sensor] Warning: WMI connection failed, falling back to basic system info" << std::endl;
+        collect_basic_system_info();
+        return false;
+    }
+
     return true;
 }
 
@@ -734,32 +791,29 @@ void SensorManager::poll_wmi() {
     // WMI query timeout: 5 seconds (prevents hangs on some machines)
     static const long kWmiTimeoutMs = 5000;
 
-    IWbemLocator* locator = nullptr;
-    IWbemServices* services = nullptr;
-
-    HRESULT hr = CoCreateInstance(
-        CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER,
-        IID_IWbemLocator, reinterpret_cast<void**>(&locator));
-    if (FAILED(hr)) {
-        // WMI not accessible - use basic fallback
-        collect_basic_system_info();
-        return;
+    // Use cached WMI connections; reconnect if they were lost
+    if (!wmi_locator_) {
+        if (!reconnect_wmi()) {
+            collect_basic_system_info();
+            return;
+        }
     }
 
-    hr = locator->ConnectServer(
-        _bstr_t(L"ROOT\\WMI"), nullptr, nullptr, nullptr,
-        0, nullptr, nullptr, &services);
+    auto* locator = static_cast<IWbemLocator*>(wmi_locator_);
+    HRESULT hr;
 
-    if (hr == WBEM_E_ACCESS_DENIED) {
-        std::cerr << "[Sensor] Warning: WMI access denied (no admin privileges), "
-                  << "using basic system info" << std::endl;
-        collect_basic_system_info();
-        locator->Release();
-        return;
-    }
+    // Helper lambda: detect transport/connection failures that require reconnect
+    auto is_connection_error = [](HRESULT h) {
+        return h == WBEM_E_TRANSPORT_FAILURE ||
+               h == WBEM_E_INVALID_NAMESPACE ||
+               h == RPC_E_DISCONNECTED ||
+               h == RPC_E_SERVER_DIED ||
+               h == RPC_E_SERVER_DIED_DNE;
+    };
 
-    if (SUCCEEDED(hr)) {
-        // Query MSAcpi_ThermalZoneTemperature
+    // --- Query ROOT\WMI for thermal zones (cached connection) ---
+    if (wmi_svc_root_wmi_) {
+        auto* services = static_cast<IWbemServices*>(wmi_svc_root_wmi_);
         IEnumWbemClassObject* enumerator = nullptr;
         hr = services->ExecQuery(
             _bstr_t(L"WQL"),
@@ -767,17 +821,23 @@ void SensorManager::poll_wmi() {
             WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
             nullptr, &enumerator);
 
+        if (is_connection_error(hr)) {
+            // Connection lost - try to reconnect on next poll
+            std::cerr << "[Sensor] WMI ROOT\\WMI connection lost, will reconnect" << std::endl;
+            cleanup_wmi();
+            collect_basic_system_info();
+            return;
+        }
+
         if (SUCCEEDED(hr) && enumerator) {
             IWbemClassObject* obj = nullptr;
             ULONG returned = 0;
             int zone_idx = 0;
 
-            // Use timeout instead of WBEM_INFINITE to prevent hanging
             while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
                 VARIANT vt;
                 hr = obj->Get(L"CurrentTemperature", 0, &vt, nullptr, nullptr);
                 if (SUCCEEDED(hr)) {
-                    // WMI reports in tenths of Kelvin
                     double temp_c = (vt.intVal / WMI_TEMP_TENTHS_TO_DEGREES) - KELVIN_TO_CELSIUS_OFFSET;
                     update_reading("ACPI Zone " + std::to_string(zone_idx),
                                    "CPU", temp_c, "C");
@@ -790,98 +850,53 @@ void SensorManager::poll_wmi() {
         } else if (hr == WBEM_E_ACCESS_DENIED) {
             std::cerr << "[Sensor] Warning: WMI thermal query access denied" << std::endl;
         }
-        services->Release();
     }
 
-    // Also try ROOT\CIMV2 for fans
-    hr = locator->ConnectServer(
-        _bstr_t(L"ROOT\\CIMV2"), nullptr, nullptr, nullptr,
-        0, nullptr, nullptr, &services);
+    // --- Query ROOT\CIMV2 for fans, CPU info, battery (cached connection) ---
+    if (wmi_svc_cimv2_) {
+        auto* cimv2 = static_cast<IWbemServices*>(wmi_svc_cimv2_);
 
-    if (SUCCEEDED(hr)) {
-        IEnumWbemClassObject* enumerator = nullptr;
-        hr = services->ExecQuery(
-            _bstr_t(L"WQL"),
-            _bstr_t(L"SELECT * FROM Win32_Fan"),
-            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-            nullptr, &enumerator);
+        // Fans
+        {
+            IEnumWbemClassObject* enumerator = nullptr;
+            hr = cimv2->ExecQuery(
+                _bstr_t(L"WQL"),
+                _bstr_t(L"SELECT * FROM Win32_Fan"),
+                WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                nullptr, &enumerator);
 
-        if (SUCCEEDED(hr) && enumerator) {
-            IWbemClassObject* obj = nullptr;
-            ULONG returned = 0;
-            int fan_idx = 0;
+            if (is_connection_error(hr)) {
+                std::cerr << "[Sensor] WMI CIMV2 connection lost, will reconnect" << std::endl;
+                cleanup_wmi();
+                collect_basic_system_info();
+                return;
+            }
 
-            while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
-                VARIANT vt;
-                hr = obj->Get(L"DesiredSpeed", 0, &vt, nullptr, nullptr);
-                if (SUCCEEDED(hr)) {
-                    update_reading("Fan " + std::to_string(fan_idx),
-                                   "Motherboard",
-                                   static_cast<double>(vt.intVal), "RPM");
-                    VariantClear(&vt);
+            if (SUCCEEDED(hr) && enumerator) {
+                IWbemClassObject* obj = nullptr;
+                ULONG returned = 0;
+                int fan_idx = 0;
+
+                while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
+                    VARIANT vt;
+                    hr = obj->Get(L"DesiredSpeed", 0, &vt, nullptr, nullptr);
+                    if (SUCCEEDED(hr)) {
+                        update_reading("Fan " + std::to_string(fan_idx),
+                                       "Motherboard",
+                                       static_cast<double>(vt.intVal), "RPM");
+                        VariantClear(&vt);
+                    }
+                    obj->Release();
+                    fan_idx++;
                 }
-                obj->Release();
-                fan_idx++;
+                enumerator->Release();
             }
-            enumerator->Release();
         }
-        services->Release();
-    }
 
-    // --- A) CPU usage via GetSystemTimes() ---
-    {
-        static ULARGE_INTEGER prev_idle = {0}, prev_kernel = {0}, prev_user = {0};
-        FILETIME idle_ft, kernel_ft, user_ft;
-        if (GetSystemTimes(&idle_ft, &kernel_ft, &user_ft)) {
-            ULARGE_INTEGER cur_idle, cur_kernel, cur_user;
-            cur_idle.LowPart = idle_ft.dwLowDateTime;
-            cur_idle.HighPart = idle_ft.dwHighDateTime;
-            cur_kernel.LowPart = kernel_ft.dwLowDateTime;
-            cur_kernel.HighPart = kernel_ft.dwHighDateTime;
-            cur_user.LowPart = user_ft.dwLowDateTime;
-            cur_user.HighPart = user_ft.dwHighDateTime;
-
-            if (prev_idle.QuadPart != 0 || prev_kernel.QuadPart != 0) {
-                ULONGLONG d_idle = cur_idle.QuadPart - prev_idle.QuadPart;
-                ULONGLONG d_kernel = cur_kernel.QuadPart - prev_kernel.QuadPart;
-                ULONGLONG d_user = cur_user.QuadPart - prev_user.QuadPart;
-                // kernel time includes idle time
-                ULONGLONG d_total = d_kernel + d_user;
-                double cpu_pct = (d_total > 0)
-                    ? 100.0 * (d_total - d_idle) / d_total
-                    : 0.0;
-                update_reading("CPU Usage", "CPU", cpu_pct, "%");
-            }
-
-            prev_idle = cur_idle;
-            prev_kernel = cur_kernel;
-            prev_user = cur_user;
-        }
-    }
-
-    // --- B) Memory info (always collected) ---
-    {
-        MEMORYSTATUSEX mem{};
-        mem.dwLength = sizeof(mem);
-        if (GlobalMemoryStatusEx(&mem)) {
-            update_reading("Memory Load", "System",
-                           static_cast<double>(mem.dwMemoryLoad), "%");
-            update_reading("Total Physical", "System",
-                           static_cast<double>(mem.ullTotalPhys) / (1024.0 * 1024.0), "MB");
-            update_reading("Available Physical", "System",
-                           static_cast<double>(mem.ullAvailPhys) / (1024.0 * 1024.0), "MB");
-        }
-    }
-
-    // --- C) CPU frequency and core count via WMI Win32_Processor (once) ---
-    {
-        static bool cpu_info_collected = false;
-        if (!cpu_info_collected) {
-            IWbemServices* cimv2 = nullptr;
-            hr = locator->ConnectServer(
-                _bstr_t(L"ROOT\\CIMV2"), nullptr, nullptr, nullptr,
-                0, nullptr, nullptr, &cimv2);
-            if (SUCCEEDED(hr)) {
+        // CPU frequency and core count (once)
+        {
+            static bool cpu_info_collected = false;
+            if (!cpu_info_collected) {
                 IEnumWbemClassObject* enumerator = nullptr;
                 hr = cimv2->ExecQuery(
                     _bstr_t(L"WQL"),
@@ -910,18 +925,11 @@ void SensorManager::poll_wmi() {
                     }
                     enumerator->Release();
                 }
-                cimv2->Release();
             }
         }
-    }
 
-    // --- D) Battery info for laptops via WMI Win32_Battery ---
-    {
-        IWbemServices* cimv2 = nullptr;
-        hr = locator->ConnectServer(
-            _bstr_t(L"ROOT\\CIMV2"), nullptr, nullptr, nullptr,
-            0, nullptr, nullptr, &cimv2);
-        if (SUCCEEDED(hr)) {
+        // Battery info for laptops
+        {
             IEnumWbemClassObject* enumerator = nullptr;
             hr = cimv2->ExecQuery(
                 _bstr_t(L"WQL"),
@@ -943,11 +951,52 @@ void SensorManager::poll_wmi() {
                 }
                 enumerator->Release();
             }
-            cimv2->Release();
         }
     }
 
-    locator->Release();
+    // --- A) CPU usage via GetSystemTimes() (no WMI needed) ---
+    {
+        static ULARGE_INTEGER prev_idle = {0}, prev_kernel = {0}, prev_user = {0};
+        FILETIME idle_ft, kernel_ft, user_ft;
+        if (GetSystemTimes(&idle_ft, &kernel_ft, &user_ft)) {
+            ULARGE_INTEGER cur_idle, cur_kernel, cur_user;
+            cur_idle.LowPart = idle_ft.dwLowDateTime;
+            cur_idle.HighPart = idle_ft.dwHighDateTime;
+            cur_kernel.LowPart = kernel_ft.dwLowDateTime;
+            cur_kernel.HighPart = kernel_ft.dwHighDateTime;
+            cur_user.LowPart = user_ft.dwLowDateTime;
+            cur_user.HighPart = user_ft.dwHighDateTime;
+
+            if (prev_idle.QuadPart != 0 || prev_kernel.QuadPart != 0) {
+                ULONGLONG d_idle = cur_idle.QuadPart - prev_idle.QuadPart;
+                ULONGLONG d_kernel = cur_kernel.QuadPart - prev_kernel.QuadPart;
+                ULONGLONG d_user = cur_user.QuadPart - prev_user.QuadPart;
+                ULONGLONG d_total = d_kernel + d_user;
+                double cpu_pct = (d_total > 0)
+                    ? 100.0 * (d_total - d_idle) / d_total
+                    : 0.0;
+                update_reading("CPU Usage", "CPU", cpu_pct, "%");
+            }
+
+            prev_idle = cur_idle;
+            prev_kernel = cur_kernel;
+            prev_user = cur_user;
+        }
+    }
+
+    // --- B) Memory info (always collected, no WMI needed) ---
+    {
+        MEMORYSTATUSEX mem{};
+        mem.dwLength = sizeof(mem);
+        if (GlobalMemoryStatusEx(&mem)) {
+            update_reading("Memory Load", "System",
+                           static_cast<double>(mem.dwMemoryLoad), "%");
+            update_reading("Total Physical", "System",
+                           static_cast<double>(mem.ullTotalPhys) / (1024.0 * 1024.0), "MB");
+            update_reading("Available Physical", "System",
+                           static_cast<double>(mem.ullAvailPhys) / (1024.0 * 1024.0), "MB");
+        }
+    }
 }
 
 #else // !_WIN32
@@ -1058,11 +1107,13 @@ bool SensorManager::init_adl() {
         adl_handle_ = LoadLibraryA("atiadlxy.dll"); // 32-bit fallback
     }
     if (!adl_handle_) return false;
+    std::cerr << "[Sensor] ADL loaded but not fully implemented - AMD GPU monitoring limited" << std::endl;
     return true;
 
 #elif defined(__linux__)
     adl_handle_ = dlopen("libatiadlxx.so", RTLD_NOW);
     if (!adl_handle_) return false;
+    std::cerr << "[Sensor] ADL loaded but not fully implemented - AMD GPU monitoring limited" << std::endl;
     return true;
 
 #else
@@ -1071,19 +1122,15 @@ bool SensorManager::init_adl() {
 }
 
 void SensorManager::poll_adl() {
-    // ADL is complex to fully implement (requires ADL_Main_Control_Create,
-    // adapter enumeration, then temperature queries). This is a skeleton
-    // that would be expanded with the full ADL SDK.
-    //
-    // In practice, on Linux with AMD GPUs, the sysfs hwmon backend
-    // (amdgpu driver) already provides temperature readings, so ADL
-    // is mainly needed on Windows.
-    //
-    // Full implementation would call:
-    //   ADL_Main_Control_Create(malloc_callback, 1)
-    //   ADL_Adapter_NumberOfAdapters_Get(&count)
-    //   ADL_Overdrive5_Temperature_Get(adapter, 0, &temp)
-    //   ADL_Overdrive5_FanSpeed_Get(adapter, 0, &fan)
+    // ADL is not fully implemented - skip polling after logging once.
+    // On Linux with AMD GPUs, the sysfs hwmon backend (amdgpu driver)
+    // already provides temperature readings, so ADL is mainly needed
+    // on Windows with the full ADL SDK.
+    if (!adl_stub_logged_) {
+        std::cerr << "[Sensor] ADL poll skipped - stub implementation, "
+                  << "AMD GPU data comes from platform sensors instead" << std::endl;
+        adl_stub_logged_ = true;
+    }
     (void)adl_handle_;
 }
 

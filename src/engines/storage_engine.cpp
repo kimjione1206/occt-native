@@ -75,7 +75,8 @@ void StorageEngine::set_direct_io(bool enabled) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 bool StorageEngine::start(StorageMode mode, const std::string& path,
-                          uint64_t file_size_mb, int queue_depth) {
+                          uint64_t file_size_mb, int queue_depth,
+                          uint64_t duration_secs) {
     std::lock_guard<std::mutex> guard(start_stop_mutex_);
 
     if (running_.load()) {
@@ -98,6 +99,7 @@ bool StorageEngine::start(StorageMode mode, const std::string& path,
 
     stop_requested_.store(false);
     running_.store(true);
+    duration_secs_.store(duration_secs);
     last_error_.clear();
 
     worker_ = std::thread(&StorageEngine::run, this, mode, dir,
@@ -365,6 +367,12 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
         bool ro = (mode == StorageMode::SEQ_READ || mode == StorageMode::RAND_READ);
         intptr_t fd = open_direct(test_file_path_, ro);
         if (fd < 0) {
+            last_error_ = "Failed to open test file: " + test_file_path_;
+            {
+                std::lock_guard<std::mutex> lock(metrics_mutex_);
+                metrics_.state = "error";
+                metrics_.error_count++;
+            }
             free_aligned(io_buf);
             running_.store(false);
             return;
@@ -414,8 +422,15 @@ void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
                               uint64_t file_size, int /*queue_depth*/) {
     auto start = std::chrono::steady_clock::now();
     uint64_t total_written = 0;
+    uint64_t ops = 0;
+    const uint64_t dur = duration_secs_.load();
 
     while (total_written < file_size && !stop_requested_.load()) {
+        if (dur > 0) {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration<double>(now - start).count();
+            if (elapsed >= static_cast<double>(dur)) break;
+        }
         size_t to_write = std::min(static_cast<uint64_t>(buf_size),
                                    file_size - total_written);
 
@@ -444,6 +459,7 @@ void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
         }
         total_written += static_cast<uint64_t>(ret);
 #endif
+        ops++;
 
         auto now = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(now - start).count();
@@ -452,6 +468,7 @@ void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
             metrics_.elapsed_secs = elapsed;
             metrics_.write_mbs = elapsed > 0 ?
                 (static_cast<double>(total_written) / (1024.0 * 1024.0)) / elapsed : 0;
+            metrics_.iops = elapsed > 0 ? static_cast<double>(ops) / elapsed : 0;
             metrics_.progress_pct = (static_cast<double>(total_written) / file_size) * 100.0;
         }
 
@@ -478,8 +495,15 @@ void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
                              uint64_t file_size, int /*queue_depth*/) {
     auto start = std::chrono::steady_clock::now();
     uint64_t total_read = 0;
+    uint64_t ops = 0;
+    const uint64_t dur = duration_secs_.load();
 
     while (total_read < file_size && !stop_requested_.load()) {
+        if (dur > 0) {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration<double>(now - start).count();
+            if (elapsed >= static_cast<double>(dur)) break;
+        }
         size_t to_read = std::min(static_cast<uint64_t>(buf_size),
                                   file_size - total_read);
 
@@ -508,6 +532,7 @@ void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
         }
         total_read += static_cast<uint64_t>(ret);
 #endif
+        ops++;
 
         auto now = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(now - start).count();
@@ -516,6 +541,7 @@ void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
             metrics_.elapsed_secs = elapsed;
             metrics_.read_mbs = elapsed > 0 ?
                 (static_cast<double>(total_read) / (1024.0 * 1024.0)) / elapsed : 0;
+            metrics_.iops = elapsed > 0 ? static_cast<double>(ops) / elapsed : 0;
             metrics_.progress_pct = (static_cast<double>(total_read) / file_size) * 100.0;
         }
 
@@ -545,6 +571,7 @@ void StorageEngine::rand_write(intptr_t fd, uint8_t* buf, uint64_t file_size,
     const size_t blk = static_cast<size_t>(block_size_kb_) * 1024;
     const uint64_t max_blocks = file_size / blk;
     if (max_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     uint64_t ops = 0;
     const uint64_t target_ops = max_blocks; // one pass over all blocks
@@ -565,6 +592,12 @@ void StorageEngine::rand_write(intptr_t fd, uint8_t* buf, uint64_t file_size,
         while (!stop_requested_.load()) {
             uint64_t current = shared_ops.fetch_add(1);
             if (current >= target_ops) break;
+
+            if (dur > 0) {
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - start).count();
+                if (elapsed >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+            }
 
             uint64_t block = local_rng.next() % max_blocks;
             uint64_t offset = block * blk;
@@ -606,6 +639,12 @@ void StorageEngine::rand_write(intptr_t fd, uint8_t* buf, uint64_t file_size,
     while (!stop_requested_.load()) {
         ops = shared_ops.load();
         if (ops >= target_ops) break;
+
+        if (dur > 0) {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration<double>(now - start).count();
+            if (elapsed >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
 
         auto now = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(now - start).count();
@@ -662,6 +701,7 @@ void StorageEngine::rand_read(intptr_t fd, uint8_t* buf, uint64_t file_size,
     const size_t blk = static_cast<size_t>(block_size_kb_) * 1024;
     const uint64_t max_blocks = file_size / blk;
     if (max_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     uint64_t target_ops = max_blocks;
     std::atomic<uint64_t> shared_ops{0};
@@ -679,6 +719,12 @@ void StorageEngine::rand_read(intptr_t fd, uint8_t* buf, uint64_t file_size,
         while (!stop_requested_.load()) {
             uint64_t current = shared_ops.fetch_add(1);
             if (current >= target_ops) break;
+
+            if (dur > 0) {
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - start).count();
+                if (elapsed >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+            }
 
             uint64_t block = local_rng.next() % max_blocks;
             uint64_t offset = block * blk;
@@ -719,6 +765,12 @@ void StorageEngine::rand_read(intptr_t fd, uint8_t* buf, uint64_t file_size,
     while (!stop_requested_.load()) {
         uint64_t ops = shared_ops.load();
         if (ops >= target_ops) break;
+
+        if (dur > 0) {
+            auto now_chk = std::chrono::steady_clock::now();
+            double elapsed_chk = std::chrono::duration<double>(now_chk - start).count();
+            if (elapsed_chk >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
 
         auto now = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(now - start).count();
@@ -774,6 +826,7 @@ void StorageEngine::mixed_io(intptr_t fd, uint8_t* buf, uint64_t file_size,
     const size_t blk = static_cast<size_t>(block_size_kb_) * 1024;
     const uint64_t max_blocks = file_size / blk;
     if (max_blocks == 0) return;
+    const uint64_t dur = duration_secs_.load();
 
     uint64_t target_ops = max_blocks;
     std::atomic<uint64_t> shared_ops{0};
@@ -793,6 +846,12 @@ void StorageEngine::mixed_io(intptr_t fd, uint8_t* buf, uint64_t file_size,
         while (!stop_requested_.load()) {
             uint64_t current = shared_ops.fetch_add(1);
             if (current >= target_ops) break;
+
+            if (dur > 0) {
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - start).count();
+                if (elapsed >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+            }
 
             uint64_t block = local_rng.next() % max_blocks;
             uint64_t offset = block * blk;
@@ -853,6 +912,12 @@ void StorageEngine::mixed_io(intptr_t fd, uint8_t* buf, uint64_t file_size,
     while (!stop_requested_.load()) {
         uint64_t ops = shared_ops.load();
         if (ops >= target_ops) break;
+
+        if (dur > 0) {
+            auto now_chk = std::chrono::steady_clock::now();
+            double elapsed_chk = std::chrono::duration<double>(now_chk - start).count();
+            if (elapsed_chk >= static_cast<double>(dur)) { stop_requested_.store(true); break; }
+        }
 
         auto now = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(now - start).count();

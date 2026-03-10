@@ -140,6 +140,12 @@ QFrame* StoragePanel::createMonitoringSection()
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
+    // Status label (hidden by default, shown on error)
+    statusLabel_ = new QLabel(frame);
+    statusLabel_->setWordWrap(true);
+    statusLabel_->setVisible(false);
+    layout->addWidget(statusLabel_);
+
     // Metrics row
     auto* metricsLayout = new QHBoxLayout();
     metricsLayout->setSpacing(16);
@@ -273,6 +279,21 @@ void StoragePanel::updateMonitoring()
     }
 
     auto m = engine_->get_metrics();
+
+    // Check for error state
+    std::string lastErr = engine_->last_error();
+    if (m.state == "error" || !lastErr.empty()) {
+        QString errMsg = lastErr.empty()
+            ? "Storage engine encountered an error"
+            : QString::fromStdString(lastErr);
+        statusLabel_->setText(errMsg);
+        statusLabel_->setStyleSheet(
+            "color: #E74C3C; font-size: 13px; font-weight: bold; border: 1px solid #E74C3C; "
+            "border-radius: 6px; padding: 8px; background-color: rgba(231,76,60,0.1);");
+        statusLabel_->setVisible(true);
+    } else if (statusLabel_->isVisible() && m.state != "error") {
+        statusLabel_->setVisible(false);
+    }
 
     if (m.state == "preparing") {
         // Show file preparation progress

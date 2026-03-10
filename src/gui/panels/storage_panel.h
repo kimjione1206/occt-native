@@ -63,6 +63,7 @@ private:
     QLabel* crcErrorsLabel_ = nullptr;
     QLabel* patternErrorsLabel_ = nullptr;
     QLabel* verifyMbsLabel_ = nullptr;
+    QLabel* statusLabel_ = nullptr;
 
     bool isRunning_ = false;
     QTimer* monitorTimer_ = nullptr;

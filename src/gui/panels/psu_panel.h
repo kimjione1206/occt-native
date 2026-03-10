@@ -12,6 +12,7 @@
 namespace occt {
 class IEngine;
 class PsuEngine;
+class SensorManager;
 }
 
 namespace occt { namespace gui {
@@ -27,6 +28,9 @@ public:
 
     /// Return a raw pointer to the underlying engine (for SafetyGuardian registration).
     IEngine* engine() const;
+
+    /// Pass SensorManager to the internal PsuEngine for power/temperature readings.
+    void setSensorManager(SensorManager* mgr);
 
 signals:
     void testStartRequested(const QString& pattern, int durationSec, bool useAllGpus);

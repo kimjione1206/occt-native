@@ -31,6 +31,13 @@ IEngine* PsuPanel::engine() const
     return engine_.get();
 }
 
+void PsuPanel::setSensorManager(SensorManager* mgr)
+{
+    if (engine_) {
+        engine_->set_sensor_manager(mgr);
+    }
+}
+
 void PsuPanel::setupUi()
 {
     auto* mainLayout = new QHBoxLayout(this);
@@ -262,7 +269,13 @@ void PsuPanel::updateMonitoring()
     // Update power labels
     totalPowerLabel_->setText(QString::number(m.total_power_watts, 'f', 1) + " W");
     cpuPowerLabel_->setText(QString::number(m.cpu_power_watts, 'f', 1) + " W");
-    gpuPowerLabel_->setText(QString::number(m.gpu_power_watts, 'f', 1) + " W");
+
+    // Show N/A when GPU is not running and reporting 0W
+    if (!m.gpu_running && m.gpu_power_watts < 0.1) {
+        gpuPowerLabel_->setText("N/A (no backend)");
+    } else {
+        gpuPowerLabel_->setText(QString::number(m.gpu_power_watts, 'f', 1) + " W");
+    }
 
     // Update error labels
     cpuErrorsLabel_->setText(QString::number(m.errors_cpu));

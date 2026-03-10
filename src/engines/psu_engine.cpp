@@ -87,7 +87,10 @@ void PsuEngine::stop_cpu_load() {
 
 void PsuEngine::start_gpu_load() {
     if (!gpu_.is_running()) {
-        gpu_.start(GpuStressMode::MATRIX_MUL, 0);
+        bool ok = gpu_.start(GpuStressMode::MATRIX_MUL, 0);
+        if (!ok) {
+            std::cerr << "[PSU] GPU not available, running CPU-only stress" << std::endl;
+        }
     }
 }
 

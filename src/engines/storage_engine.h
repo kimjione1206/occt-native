@@ -70,8 +70,10 @@ public:
     /// @param path          Directory/file path for test file.
     /// @param file_size_mb  Total test file size in MB.
     /// @param queue_depth   Number of concurrent I/O threads.
+    /// @param duration_secs Maximum test duration in seconds (0 = unlimited).
     bool start(StorageMode mode, const std::string& path,
-               uint64_t file_size_mb = 2048, int queue_depth = 4);
+               uint64_t file_size_mb = 2048, int queue_depth = 4,
+               uint64_t duration_secs = 0);
 
     /// Run a CrystalDiskMark-style storage benchmark (synchronous).
     /// Returns results for 8 standard tests (SEQ/RND, read/write).
@@ -127,6 +129,7 @@ private:
     std::mutex start_stop_mutex_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
+    std::atomic<uint64_t> duration_secs_{0};
 
     mutable std::mutex metrics_mutex_;
     StorageMetrics metrics_;
