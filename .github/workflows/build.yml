@@ -52,13 +52,18 @@ jobs:
           exit 1
         }
 
+    - name: Deploy Qt Dependencies
+      shell: pwsh
+      run: |
+        $exe = "build/${{ env.BUILD_TYPE }}/occt_native.exe"
+        & windeployqt --release --no-translations --no-opengl-sw $exe
+        Write-Host "Qt dependencies deployed to: build/${{ env.BUILD_TYPE }}/"
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: occt-native-windows
-        path: |
-          build/${{ env.BUILD_TYPE }}/occt_native.exe
-          build/${{ env.BUILD_TYPE }}/*.dll
+        path: build/${{ env.BUILD_TYPE }}/
         if-no-files-found: warn
         retention-days: 30
 
