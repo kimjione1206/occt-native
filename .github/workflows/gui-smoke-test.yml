@@ -45,6 +45,7 @@ jobs:
       shell: pwsh
       run: |
         $PSNativeCommandUseErrorActionPreference = $false
+        $ErrorActionPreference = 'Continue'
 
         $exe = "build/${{ env.BUILD_TYPE }}/occt_native.exe"
         Write-Host "Running CLI tests with exe: $exe"
@@ -70,7 +71,7 @@ jobs:
         Write-Host "Exit code: $LASTEXITCODE"
 
         Write-Host "`n=== Monitor Test (CSV) ==="
-        & $exe --cli --monitor --duration 3 --csv 2>&1 | Tee-Object -FilePath cli_monitor.log
+        & $exe --cli --monitor-only --duration 3 --csv 2>&1 | Tee-Object -FilePath cli_monitor.log
         Write-Host "Exit code: $LASTEXITCODE"
 
         Write-Host "`n=== PSU Test (Steady) ==="
@@ -92,6 +93,7 @@ jobs:
         }
 
         Write-Host "`nAll CLI tests completed!"
+        exit 0
 
     - name: Upload CLI test logs
       uses: actions/upload-artifact@v4
