@@ -153,301 +153,214 @@ jobs:
         using System;
         using System.Runtime.InteropServices;
         public class Win32 {
-            [DllImport("user32.dll")]
-            public static extern bool SetCursorPos(int X, int Y);
-            [DllImport("user32.dll")]
-            public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, int dwExtraInfo);
-            [DllImport("user32.dll")]
-            public static extern bool SetForegroundWindow(IntPtr hWnd);
-            [DllImport("user32.dll")]
-            public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-            [DllImport("user32.dll")]
-            public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-            [StructLayout(LayoutKind.Sequential)]
-            public struct RECT {
-                public int Left, Top, Right, Bottom;
-            }
-            public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-            public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
             public const int SW_MAXIMIZE = 3;
-            public static void Click(int x, int y) {
-                SetCursorPos(x, y);
-                System.Threading.Thread.Sleep(100);
-                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            }
         }
         "@
+
+        # ── Global: cache the app automation element ──
+        $script:appWin = $null
+
+        function Get-AppWindow() {
+            if ($script:appWin) { return $script:appWin }
+            $root = [System.Windows.Automation.AutomationElement]::RootElement
+            $cond = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
+            $script:appWin = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+            return $script:appWin
+        }
 
         function Take-Screenshot($name) {
             Start-Sleep -Milliseconds 500
             $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-            $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
-            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-            $bitmap.Save("screenshots\$name.png")
-            $graphics.Dispose()
-            $bitmap.Dispose()
+            $bmp = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
+            $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+            $gfx.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
+            $bmp.Save("screenshots\$name.png")
+            $gfx.Dispose(); $bmp.Dispose()
             Write-Host "  >> Screenshot: $name.png"
         }
 
-        function Click-SidebarPanel($panelName) {
+        function Click-ButtonByName($buttonName) {
             [Win32]::SetForegroundWindow($hwnd)
-            $y = $panelButtons[$panelName]
-            [Win32]::Click($sidebarX, $y)
-            Start-Sleep -Seconds 1
-            Write-Host "  Switched to panel: $panelName"
-        }
-
-        function Click-StartButton() {
-            # Start button: bottom of left settings panel (320px wide, starts at sidebar end)
-            # X = center of settings panel = winX + 220(sidebar) + 160(half of 320)
-            # Y = try UI Automation first, then fall back to position scan
-            [Win32]::SetForegroundWindow($hwnd)
-
-            $clicked = $false
+            $win = Get-AppWindow
+            if (!$win) { Write-Host "  ERROR: App window not found"; return $false }
             try {
-                # Try UI Automation: find "Start Test" button
-                $root = [System.Windows.Automation.AutomationElement]::RootElement
-                $procCondition = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
-                $appWin = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $procCondition)
-                if ($appWin) {
-                    # Search for button named "Start Test"
-                    $btnCondition = New-Object System.Windows.Automation.AndCondition(
-                        (New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                            [System.Windows.Automation.ControlType]::Button)),
-                        (New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::NameProperty, "Start Test"))
-                    )
-                    $startBtn = $appWin.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
-                    if ($startBtn) {
-                        $invokePattern = $startBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                        $invokePattern.Invoke()
-                        $clicked = $true
-                        Write-Host "  Start button clicked via UI Automation"
-                    }
-
-                    # Also try "Run Benchmark" for benchmark panel
-                    if (!$clicked) {
-                        $btnCondition2 = New-Object System.Windows.Automation.AndCondition(
-                            (New-Object System.Windows.Automation.PropertyCondition(
-                                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                                [System.Windows.Automation.ControlType]::Button)),
-                            (New-Object System.Windows.Automation.PropertyCondition(
-                                [System.Windows.Automation.AutomationElement]::NameProperty, "Run Benchmark"))
-                        )
-                        $benchBtn = $appWin.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $btnCondition2)
-                        if ($benchBtn) {
-                            $invokePattern = $benchBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                            $invokePattern.Invoke()
-                            $clicked = $true
-                            Write-Host "  Run Benchmark button clicked via UI Automation"
-                        }
-                    }
+                $cond = New-Object System.Windows.Automation.AndCondition(
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Button)),
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NameProperty, $buttonName))
+                )
+                $btn = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+                if ($btn) {
+                    $pattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                    $pattern.Invoke()
+                    Write-Host "  Clicked: '$buttonName'"
+                    return $true
+                } else {
+                    Write-Host "  Button not found: '$buttonName'"
+                    return $false
                 }
             } catch {
-                Write-Host "  UI Automation failed: $($_.Exception.Message)"
-            }
-
-            if (!$clicked) {
-                # Fallback: click at estimated position
-                $btnX = $winX + 380
-                # Scan bottom area of settings panel for the button
-                foreach ($tryY in @(($winY + $winH - 80), ($winY + $winH - 120), ($winY + $winH - 60))) {
-                    [Win32]::Click($btnX, $tryY)
-                    Write-Host "  Fallback click at ($btnX, $tryY)"
-                    Start-Sleep -Milliseconds 300
-                }
+                Write-Host "  Click failed for '$buttonName': $($_.Exception.Message)"
+                return $false
             }
         }
 
-        function Click-StopButton() {
+        function Click-SidebarPanel($panelLabel) {
+            # Sidebar buttons use emoji + text. Search by substring match.
             [Win32]::SetForegroundWindow($hwnd)
+            $win = Get-AppWindow
+            if (!$win) { Write-Host "  ERROR: App window not found"; return }
             try {
-                $root = [System.Windows.Automation.AutomationElement]::RootElement
-                $procCondition = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
-                $appWin = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $procCondition)
-                if ($appWin) {
-                    $btnCondition = New-Object System.Windows.Automation.AndCondition(
-                        (New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                            [System.Windows.Automation.ControlType]::Button)),
-                        (New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::NameProperty, "Stop Test"))
-                    )
-                    $stopBtn = $appWin.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
-                    if ($stopBtn) {
-                        $invokePattern = $stopBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                        $invokePattern.Invoke()
-                        Write-Host "  Stop button clicked via UI Automation"
+                # Find all buttons, then match by name containing the panel label
+                $btnType = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Button)
+                $allBtns = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnType)
+                foreach ($btn in $allBtns) {
+                    $name = $btn.Current.Name
+                    if ($name -and $name -like "*$panelLabel*") {
+                        $pattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                        $pattern.Invoke()
+                        Write-Host "  Sidebar -> '$name'"
+                        Start-Sleep -Seconds 1
                         return
                     }
                 }
-            } catch {}
-            # Fallback
-            $btnX = $winX + 380
-            [Win32]::Click($btnX, ($winY + $winH - 80))
-            Write-Host "  Stop button fallback click"
+                Write-Host "  Sidebar button not found for: $panelLabel"
+            } catch {
+                Write-Host "  Sidebar click failed: $($_.Exception.Message)"
+            }
         }
 
         # ── Setup ──
         New-Item -ItemType Directory -Force -Path screenshots | Out-Null
 
-        # Launch the app
         Write-Host "=== Launching OCCT Native GUI ==="
         $proc = Start-Process -FilePath "build\Release\occt_native.exe" -PassThru
         Start-Sleep -Seconds 6
 
-        # Maximize the window for consistent screenshots
         $hwnd = $proc.MainWindowHandle
         [Win32]::ShowWindow($hwnd, [Win32]::SW_MAXIMIZE)
-        Start-Sleep -Seconds 1
+        Start-Sleep -Seconds 2
         [Win32]::SetForegroundWindow($hwnd)
-
-        $rect = New-Object Win32+RECT
-        [Win32]::GetWindowRect($hwnd, [ref]$rect)
-        $winX = $rect.Left
-        $winY = $rect.Top
-        $winW = $rect.Right - $rect.Left
-        $winH = $rect.Bottom - $rect.Top
-        Write-Host "Window maximized: ${winX},${winY} size ${winW}x${winH}"
-
-        # Sidebar nav button positions (relative to window)
-        $sidebarX = $winX + 110
-        $panelButtons = @{
-            "dashboard" = $winY + 100
-            "cpu"       = $winY + 145
-            "gpu"       = $winY + 190
-            "ram"       = $winY + 235
-            "storage"   = $winY + 280
-            "psu"       = $winY + 325
-            "schedule"  = $winY + 390
-            "benchmark" = $winY + 435
-            "certificate" = $winY + 480
-            "monitor"   = $winY + 545
-            "sysinfo"   = $winY + 590
-            "results"   = $winY + 635
-        }
 
         # ── 1. Dashboard ──
         Write-Host "`n=== 1. Dashboard ==="
-        Take-Screenshot "01_dashboard_initial"
+        Take-Screenshot "01_dashboard"
 
         # ── 2. CPU Test ──
-        Write-Host "`n=== 2. CPU Panel - Start Test ==="
-        Click-SidebarPanel "cpu"
-        Take-Screenshot "02_cpu_before_start"
-
-        Click-StartButton
+        Write-Host "`n=== 2. CPU Test ==="
+        Click-SidebarPanel "CPU Test"
+        Take-Screenshot "02_cpu_idle"
+        Click-ButtonByName "Start Test"
         Start-Sleep -Seconds 3
         Take-Screenshot "03_cpu_running_3s"
         Start-Sleep -Seconds 5
         Take-Screenshot "04_cpu_running_8s"
         Start-Sleep -Seconds 5
         Take-Screenshot "05_cpu_running_13s"
-
-        Click-StopButton
+        Click-ButtonByName "Stop Test"
         Start-Sleep -Seconds 2
         Take-Screenshot "06_cpu_stopped"
 
         # ── 3. RAM Test ──
-        Write-Host "`n=== 3. RAM Panel - Start Test ==="
-        Click-SidebarPanel "ram"
-        Take-Screenshot "07_ram_before_start"
-
-        Click-StartButton
+        Write-Host "`n=== 3. RAM Test ==="
+        Click-SidebarPanel "RAM Test"
+        Take-Screenshot "07_ram_idle"
+        Click-ButtonByName "Start Test"
         Start-Sleep -Seconds 3
         Take-Screenshot "08_ram_running_3s"
         Start-Sleep -Seconds 5
         Take-Screenshot "09_ram_running_8s"
         Start-Sleep -Seconds 5
         Take-Screenshot "10_ram_running_13s"
-
-        Click-StopButton
+        Click-ButtonByName "Stop Test"
         Start-Sleep -Seconds 2
         Take-Screenshot "11_ram_stopped"
 
         # ── 4. Storage Test ──
-        Write-Host "`n=== 4. Storage Panel - Start Test ==="
-        Click-SidebarPanel "storage"
-        Take-Screenshot "12_storage_before_start"
-
-        Click-StartButton
+        Write-Host "`n=== 4. Storage Test ==="
+        Click-SidebarPanel "Storage Test"
+        Take-Screenshot "12_storage_idle"
+        Click-ButtonByName "Start Test"
         Start-Sleep -Seconds 3
         Take-Screenshot "13_storage_running_3s"
         Start-Sleep -Seconds 5
         Take-Screenshot "14_storage_running_8s"
-
-        Click-StopButton
+        Click-ButtonByName "Stop Test"
         Start-Sleep -Seconds 2
         Take-Screenshot "15_storage_stopped"
 
-        # ── 5. GPU Panel (expect backend unavailable) ──
-        Write-Host "`n=== 5. GPU Panel ==="
-        Click-SidebarPanel "gpu"
+        # ── 5. GPU Panel ──
+        Write-Host "`n=== 5. GPU Test ==="
+        Click-SidebarPanel "GPU Test"
         Take-Screenshot "16_gpu_panel"
-
-        Click-StartButton
+        Click-ButtonByName "Start Test"
         Start-Sleep -Seconds 2
-        Take-Screenshot "17_gpu_after_start_attempt"
+        Take-Screenshot "17_gpu_start_attempt"
 
-        # ── 6. PSU Panel ──
-        Write-Host "`n=== 6. PSU Panel - Start Test ==="
-        Click-SidebarPanel "psu"
-        Take-Screenshot "18_psu_before_start"
-
-        Click-StartButton
+        # ── 6. PSU Test ──
+        Write-Host "`n=== 6. PSU Test ==="
+        Click-SidebarPanel "PSU Test"
+        Take-Screenshot "18_psu_idle"
+        Click-ButtonByName "Start Test"
         Start-Sleep -Seconds 3
         Take-Screenshot "19_psu_running_3s"
         Start-Sleep -Seconds 5
         Take-Screenshot "20_psu_running_8s"
-
-        Click-StopButton
+        Click-ButtonByName "Stop Test"
         Start-Sleep -Seconds 2
         Take-Screenshot "21_psu_stopped"
 
         # ── 7. Benchmark ──
-        Write-Host "`n=== 7. Benchmark Panel ==="
-        Click-SidebarPanel "benchmark"
-        Take-Screenshot "22_benchmark_before_start"
-
-        Click-StartButton
+        Write-Host "`n=== 7. Benchmark ==="
+        Click-SidebarPanel "Benchmark"
+        Take-Screenshot "22_benchmark_idle"
+        Click-ButtonByName "Run Benchmark"
         Start-Sleep -Seconds 5
         Take-Screenshot "23_benchmark_running_5s"
         Start-Sleep -Seconds 10
         Take-Screenshot "24_benchmark_running_15s"
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds 15
         Take-Screenshot "25_benchmark_done"
 
-        # ── 8. Monitor Panel (sensors) ──
-        Write-Host "`n=== 8. Monitor Panel ==="
-        Click-SidebarPanel "monitor"
+        # ── 8. Monitoring ──
+        Write-Host "`n=== 8. Monitoring ==="
+        Click-SidebarPanel "Monitoring"
         Start-Sleep -Seconds 3
-        Take-Screenshot "26_monitor_sensors"
+        Take-Screenshot "26_monitor"
 
         # ── 9. System Info ──
-        Write-Host "`n=== 9. System Info Panel ==="
-        Click-SidebarPanel "sysinfo"
+        Write-Host "`n=== 9. System Info ==="
+        Click-SidebarPanel "System Info"
         Start-Sleep -Seconds 2
         Take-Screenshot "27_sysinfo"
 
-        # ── 10. Dashboard after tests ──
-        Write-Host "`n=== 10. Dashboard Final ==="
-        Click-SidebarPanel "dashboard"
+        # ── 10. Schedule ──
+        Write-Host "`n=== 10. Schedule ==="
+        Click-SidebarPanel "Schedule"
         Start-Sleep -Seconds 2
-        Take-Screenshot "28_dashboard_final"
+        Take-Screenshot "28_schedule"
+
+        # ── 11. Dashboard final ──
+        Write-Host "`n=== 11. Dashboard Final ==="
+        Click-SidebarPanel "Dashboard"
+        Start-Sleep -Seconds 2
+        Take-Screenshot "29_dashboard_final"
 
         # Cleanup
-        Write-Host "`n=== Closing application ==="
+        Write-Host "`n=== Closing ==="
         $proc.CloseMainWindow()
         Start-Sleep -Seconds 3
         if (!$proc.HasExited) { $proc.Kill() }
 
         $count = (Get-ChildItem screenshots\*.png).Count
-        Write-Host "`nGUI smoke test complete! $count screenshots captured."
+        Write-Host "`nDone! $count screenshots captured."
 
     - name: Upload screenshots
       uses: actions/upload-artifact@v4
