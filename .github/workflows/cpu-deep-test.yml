@@ -51,14 +51,14 @@ jobs:
 
         $results = @()
 
-        function Run-CpuTest($testName, $args) {
+        function Run-CpuTest($testName, $testArgs) {
             Write-Host "`n=========================================="
             Write-Host "TEST: $testName"
-            Write-Host "ARGS: $args"
+            Write-Host "ARGS: $testArgs"
             Write-Host "==========================================`n"
 
             $logFile = "cpu-cli-logs/${testName}.log"
-            $cmd = "& `"$exe`" --cli $args"
+            $cmd = "& `"$exe`" --cli $testArgs"
 
             $startTime = Get-Date
             Invoke-Expression "$cmd 2>&1" | Tee-Object -FilePath $logFile
