@@ -1,0 +1,270 @@
+name: GUI Smoke Test & CLI Log Capture
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  BUILD_TYPE: Release
+  QT_VERSION: '6.8.2'
+
+jobs:
+  cli-log-test:
+    name: CLI Log Tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: ${{ env.QT_VERSION }}
+        host: windows
+        target: desktop
+        arch: win64_msvc2022_64
+        modules: 'qtcharts'
+        cache: true
+
+    - name: Configure CMake (CLI mode)
+      run: >
+        cmake -B build
+        -G "Visual Studio 17 2022"
+        -A x64
+        -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
+        -DOCCT_CONSOLE=ON
+
+    - name: Build
+      run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+    - name: Run CLI tests with log capture
+      shell: pwsh
+      run: |
+        $PSNativeCommandUseErrorActionPreference = $false
+
+        $exe = "build/${{ env.BUILD_TYPE }}/occt_native.exe"
+        Write-Host "Running CLI tests with exe: $exe"
+
+        Write-Host "`n=== CPU Test (AVX2) ==="
+        & $exe --cli --test cpu --mode avx2 --duration 5 --threads 2 2>&1 | Tee-Object -FilePath cli_cpu.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== RAM Test (March C) ==="
+        & $exe --cli --test ram --mode march_c --passes 1 --memory-pct 5 --duration 5 2>&1 | Tee-Object -FilePath cli_ram.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Storage Test (Seq Write) ==="
+        & $exe --cli --test storage --mode seq_write --duration 5 --file-size 64 2>&1 | Tee-Object -FilePath cli_storage.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Storage Test (Verify Seq) ==="
+        & $exe --cli --test storage --mode verify_seq --file-size 64 2>&1 | Tee-Object -FilePath cli_storage_verify.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Benchmark Test (CPU) ==="
+        & $exe --cli --test benchmark --bench-type cpu --duration 5 2>&1 | Tee-Object -FilePath cli_benchmark.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Monitor Test (CSV) ==="
+        & $exe --cli --monitor --duration 3 --csv 2>&1 | Tee-Object -FilePath cli_monitor.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== PSU Test (Steady) ==="
+        & $exe --cli --test psu --mode steady --duration 5 2>&1 | Tee-Object -FilePath cli_psu.log
+        $psuExit = $LASTEXITCODE
+        Write-Host "Exit code: $psuExit"
+        if ($psuExit -ne 0 -and $psuExit -ne 2) {
+          Write-Error "PSU test failed with unexpected exit code: $psuExit"
+          exit 1
+        }
+
+        Write-Host "`n=== GPU Test (Matrix) ==="
+        & $exe --cli --test gpu --mode matrix --duration 5 2>&1 | Tee-Object -FilePath cli_gpu.log
+        $gpuExit = $LASTEXITCODE
+        Write-Host "Exit code: $gpuExit"
+        if ($gpuExit -ne 0 -and $gpuExit -ne 2) {
+          Write-Error "GPU test failed with unexpected exit code: $gpuExit"
+          exit 1
+        }
+
+        Write-Host "`nAll CLI tests completed!"
+
+    - name: Upload CLI test logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: cli-test-logs
+        path: "*.log"
+        if-no-files-found: warn
+
+  gui-screenshot-test:
+    name: GUI Screenshot Test
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: ${{ env.QT_VERSION }}
+        host: windows
+        target: desktop
+        arch: win64_msvc2022_64
+        modules: 'qtcharts'
+        cache: true
+
+    - name: Configure CMake (GUI mode)
+      run: >
+        cmake -B build
+        -G "Visual Studio 17 2022"
+        -A x64
+        -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
+
+    - name: Build
+      run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+    - name: Deploy Qt Dependencies
+      shell: pwsh
+      run: |
+        $exe = "build/${{ env.BUILD_TYPE }}/occt_native.exe"
+        & windeployqt --release --no-translations --no-opengl-sw $exe
+        Write-Host "Qt dependencies deployed to: build/${{ env.BUILD_TYPE }}/"
+
+    - name: Launch GUI and take screenshots
+      shell: pwsh
+      continue-on-error: true
+      run: |
+        # Helper function for screenshots
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+
+        # Import user32.dll for mouse clicks
+        Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class Win32 {
+            [DllImport("user32.dll")]
+            public static extern bool SetCursorPos(int X, int Y);
+            [DllImport("user32.dll")]
+            public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, int dwExtraInfo);
+            [DllImport("user32.dll")]
+            public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")]
+            public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+            [StructLayout(LayoutKind.Sequential)]
+            public struct RECT {
+                public int Left, Top, Right, Bottom;
+            }
+            public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+            public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+            public static void Click(int x, int y) {
+                SetCursorPos(x, y);
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+            }
+        }
+        "@
+
+        function Take-Screenshot($name) {
+            $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+            $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
+            $bitmap.Save("screenshots\$name.png")
+            $graphics.Dispose()
+            $bitmap.Dispose()
+            Write-Host "Screenshot saved: $name.png"
+        }
+
+        New-Item -ItemType Directory -Force -Path screenshots
+
+        # Launch the app
+        $proc = Start-Process -FilePath "build\Release\occt_native.exe" -PassThru
+        Start-Sleep -Seconds 5
+
+        # Get window rect
+        $hwnd = $proc.MainWindowHandle
+        [Win32]::SetForegroundWindow($hwnd)
+        $rect = New-Object Win32+RECT
+        [Win32]::GetWindowRect($hwnd, [ref]$rect)
+        $winX = $rect.Left
+        $winY = $rect.Top
+        Write-Host "Window at: $winX, $winY (size: $($rect.Right - $rect.Left) x $($rect.Bottom - $rect.Top))"
+
+        # Screenshot 1: Dashboard (default panel)
+        Take-Screenshot "01_dashboard"
+
+        # Sidebar button positions (relative to window)
+        # Sidebar is 220px wide, buttons start after 50px header
+        # Each button is ~42px tall with some spacing
+        # Group 1: dashboard, cpu, gpu, ram, storage, psu (with separators)
+        # The sidebar nav button center X is about winX + 110
+        $sidebarX = $winX + 110
+
+        # Approximate Y positions for each panel button (relative to window top)
+        # Header = 50px, then buttons with padding
+        $panelButtons = @{
+            "cpu" = $winY + 140
+            "gpu" = $winY + 185
+            "ram" = $winY + 230
+            "storage" = $winY + 275
+            "psu" = $winY + 320
+            "schedule" = $winY + 385
+            "benchmark" = $winY + 430
+            "certificate" = $winY + 475
+            "monitor" = $winY + 540
+            "sysinfo" = $winY + 585
+            "results" = $winY + 630
+        }
+
+        # Click each panel and screenshot
+        foreach ($panel in @("cpu", "gpu", "ram", "storage", "psu", "monitor", "sysinfo", "benchmark")) {
+            $y = $panelButtons[$panel]
+            [Win32]::SetForegroundWindow($hwnd)
+            [Win32]::Click($sidebarX, $y)
+            Start-Sleep -Seconds 2
+            Take-Screenshot "02_$panel"
+        }
+
+        # Try starting a CPU test - click the Start button area
+        # CPU panel should have a Start button in the content area
+        [Win32]::SetForegroundWindow($hwnd)
+        $cpuY = $panelButtons["cpu"]
+        [Win32]::Click($sidebarX, $cpuY)
+        Start-Sleep -Seconds 1
+
+        # Click Start button (approximate position in content area - center of panel)
+        $startBtnX = $winX + 710  # roughly center of content area
+        $startBtnY = $winY + 750  # bottom area where start button usually is
+        [Win32]::Click($startBtnX, $startBtnY)
+        Start-Sleep -Seconds 8
+        Take-Screenshot "03_cpu_running"
+
+        # Stop the test
+        [Win32]::Click($startBtnX, $startBtnY)
+        Start-Sleep -Seconds 2
+        Take-Screenshot "04_cpu_stopped"
+
+        # Close the app
+        $proc.CloseMainWindow()
+        Start-Sleep -Seconds 2
+        if (!$proc.HasExited) { $proc.Kill() }
+
+        Write-Host "GUI smoke test complete!"
+
+    - name: Upload screenshots
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: gui-screenshots
+        path: screenshots/
+        if-no-files-found: warn
+        retention-days: 30
