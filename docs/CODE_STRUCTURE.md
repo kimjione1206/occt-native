@@ -1,7 +1,7 @@
 # OCCT Native - 전체 코드 구조
 
 > 이 문서는 프로젝트 수정 시 반드시 참고해야 하는 코드 구조 레퍼런스입니다.
-> 최종 업데이트: 2026-03-09 (리팩토링 반영)
+> 최종 업데이트: 2026-03-11 (런타임 수정 + GUI 스모크 테스트 반영)
 
 ## 프로젝트 개요
 
@@ -97,7 +97,8 @@ occt-native/
 │   ├── windows-test.yml            # 46개 Windows 테스트
 │   ├── build-windows.yml           # 포터블 릴리즈 빌드
 │   ├── build.yml                   # 멀티플랫폼 빌드
-│   └── gpu-test.yml                # GPU 테스트
+│   ├── gpu-test.yml                # GPU 테스트
+│   └── gui-smoke-test.yml          # GUI 스크린샷 + CLI 로그 테스트
 └── docs/
     └── CODE_STRUCTURE.md           # 이 문서
 ```
@@ -117,18 +118,19 @@ start(mode, ...) → is_running() == true
 | CPU | 8 (AVX2, AVX512, SSE, Linpack, Prime...) | N workers + metrics | IEEE 754 FMA 체인 비트 비교 |
 | GPU | 8 (Matrix, FMA, Trig, VRAM, Vulkan...) | 1 worker + metrics | Artifact Detector (픽셀 비교) |
 | RAM | 6 (March C-, Walking 1/0, Checker...) | 1 worker | 패턴 쓰기 → 읽기 비교 |
-| Storage | 9 (Seq/Rand R/W, Verify, Fill...) | 1 worker + I/O | CRC32C + 블록 헤더 검증 |
-| PSU | 3 (Steady, Spike, Ramp) | CPU+GPU 동시 | 하위 엔진 에러 집계 |
+| Storage | 9 (Seq/Rand R/W, Verify, Fill...) | 1 worker + I/O | CRC32C + 블록 헤더 검증 (duration_secs 지원) |
+| PSU | 3 (Steady, Spike, Ramp) | CPU+GPU 동시 | 하위 엔진 에러 집계 (SensorManager 연동) |
 
 ## GUI 아키텍처
 
 ```
 MainWindow
 ├── statusTimer_ (1s) → updateStatusBar(), timeLabel_
-├── sensorMgr_ (unique_ptr<SensorManager>) → 4개 패널에 분배
+├── sensorMgr_ (unique_ptr<SensorManager>) → 5개 패널에 분배
 │   ├── monitorPanel->setSensorManager()
 │   ├── cpuPanel->setSensorManager() → engine_->set_sensor_manager()
 │   ├── gpuPanel->setSensorManager()
+│   ├── psuPanel->setSensorManager() → engine_->set_sensor_manager() (내부 CPU 엔진)
 │   └── dashboardPanel->setSensorManager()
 ├── safetyGuardian_ (unique_ptr<SafetyGuardian>) → 5개 엔진 등록
 │   ├── cpuPanel->engine()
@@ -150,16 +152,51 @@ MainWindow
 **센서 데이터 흐름:**
 ```
 SensorManager::poll_thread (500ms)
-  ├── [Windows] poll_wmi() → ACPI Thermal + GetSystemTimes + Win32_Processor
+  ├── [Windows] LHM bridge (lhm_bridge_) → 정확한 하드웨어 모니터링 (최우선)
+  │   └── LibreHardwareMonitor DLL → CPU/GPU/MB 온도, 전력, 팬 RPM
+  ├── [Windows] poll_wmi() → 캐시된 WMI COM 연결 사용 (wmi_svc_root_wmi_, wmi_svc_cimv2_)
+  │   ├── Temperature fallback chain:
+  │   │   1. MSAcpi_ThermalZoneTemperature (WMI ROOT\WMI)
+  │   │   2. Win32_PerfFormattedData (Performance Counter)
+  │   │   3. N/A (GUI shows "-- °C" or "N/A")
+  │   ├── GetSystemTimes → CPU 사용률
+  │   ├── PDH-based dynamic CPU frequency:
+  │   │   └── PdhCollectQueryData → \Processor Information(_Total)\% Processor Performance
+  │   │       → actual_freq = max_clock_speed * (perf_pct / 100.0)
+  │   └── CPU power estimation (TDP × usage%):
+  │       └── estimate_tdp(brand) → TDP lookup by CPU family
+  │           → estimated_power = TDP * (cpu_pct / 100.0)
+  │           → is_cpu_power_estimated() returns true
   ├── [macOS]   poll_iokit() → ThermalState + Battery + Mach CPU + Memory
   ├── [Linux]   poll_sysfs() → /sys/class/hwmon + /sys/class/thermal
   ├── poll_nvml() → NVIDIA GPU temp/power
-  └── poll_adl()  → AMD GPU (스켈레톤)
+  └── poll_adl()  → AMD GPU (스켈레톤, 1회 로그 후 스킵)
         ↓
   update_reading(name, category, value, unit)
         ↓
   GUI panels: get_cpu_temperature(), get_gpu_temperature(), get_all_readings()
+  CLI output: temperature=null when 0, power_estimated=true when TDP-based
 ```
+
+**WMI COM 캐싱 (Windows):**
+- `wmi_locator_`, `wmi_svc_root_wmi_`, `wmi_svc_cimv2_` → 멤버 변수로 캐시
+- 초기화 1회, 이후 500ms 폴링마다 재사용 (ConnectServer 호출 제거)
+- 연결 끊김 시 `reconnect_wmi()` → 자동 재연결
+- 종료 시 `cleanup_wmi()` → COM 리소스 정리
+
+**PSU 센서 체인:**
+```
+PsuPanel::setSensorManager(mgr)
+  → PsuEngine::set_sensor_manager(mgr)
+    → 내부 cpu_ (CpuEngine)::set_sensor_manager(mgr)
+      → CPU 전력 읽기 → PSU 메트릭에 반영
+```
+
+**패널 에러 표시:**
+- `panel_styles.h`: `kErrorText` (빨간 볼드), `kWarningBanner` (노란 테두리)
+- GPU Panel: `statusBanner_` → "GPU backend not available" 경고
+- Storage Panel: `statusLabel_` → 파일 오픈 실패 시 빨간 에러 표시
+- Main Window: 센서 초기화 실패 시 상태바 경고 메시지
 
 ## CLI 구조
 
@@ -210,6 +247,24 @@ occt_native --cli --test <type> --mode <mode> [옵션]
 - GPU/PSU 테스트: exit code 2 허용 (하드웨어 없음)
 - `$PSNativeCommandUseErrorActionPreference = $false` → exit code 전파 방지
 
+## GUI 스모크 테스트 (gui-smoke-test.yml)
+
+**2개 잡:**
+
+| 잡 | 빌드 모드 | 내용 |
+|----|----------|------|
+| cli-log-test | `OCCT_CONSOLE=ON` | 8개 CLI 테스트 + 로그 파일 캡처 |
+| gui-screenshot-test | 기본 (GUI) | 29개 스크린샷 + UI Automation 조작 |
+
+**CLI 로그 테스트:** CPU/RAM/Storage/Benchmark/Monitor/PSU/GPU 순차 실행, `.log` 파일로 저장
+
+**GUI 스크린샷 테스트:**
+- Windows UI Automation API (`System.Windows.Automation`) 사용
+- `Click-ButtonByName`: 버튼 이름으로 검색+클릭 (InvokePattern)
+- `Click-SidebarPanel`: 사이드바 버튼을 텍스트 부분 매칭으로 탐색
+- 실제 테스트 시작/정지 수행 (CPU 13초, RAM 13초, Storage 8초 등)
+- 아티팩트: `gui-screenshots` (29장 PNG), `cli-test-logs` (8개 .log)
+
 ## 안전 시스템
 
 ```
@@ -235,12 +290,12 @@ SafetyGuardian (200ms 폴링)
 
 | 센서 | Windows | macOS | Linux |
 |------|---------|-------|-------|
-| CPU 온도 | WMI ACPI | ThermalState 추정 | sysfs hwmon |
-| CPU 전력 | - | 배터리 V×A | sysfs power |
+| CPU 온도 | LHM > MSAcpi > PerfCounter > N/A | ThermalState 추정 | sysfs hwmon |
+| CPU 전력 | LHM > TDP×usage% (estimated) | 배터리 V×A | sysfs power |
 | CPU 사용률 | GetSystemTimes | Mach host_processor_info | /proc/stat |
+| CPU 주파수 | PDH dynamic (% Processor Performance × base) | sysctl hw.cpufrequency | sysfs cpufreq |
 | GPU 온도 | NVML/ADL | IOHIDSensor | sysfs amdgpu |
 | 메모리 | GlobalMemoryStatusEx | kern.memorystatus_level | /proc/meminfo |
-| CPU 주파수 | WMI Win32_Processor | sysctl hw.cpufrequency | sysfs cpufreq |
 | 팬 RPM | WMI Win32_Fan | - | sysfs hwmon |
 | WHEA | WEVTAPI | - | - |
 

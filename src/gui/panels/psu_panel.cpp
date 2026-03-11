@@ -136,19 +136,18 @@ QFrame* PsuPanel::createMonitoringSection()
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
-    // Metrics cards row
-    auto* metricsLayout = new QHBoxLayout();
-    metricsLayout->setSpacing(12);
-
+    // Metrics cards (2 rows: 3 power + 2 error)
     auto createMetricCard = [frame](const QString& label, const QString& val, const QString& color) -> QLabel* {
         auto* card = new QFrame(frame);
         card->setStyleSheet(styles::kCardFrame);
+        card->setMinimumWidth(100);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 10, 12, 10);
         cl->setSpacing(4);
         auto* lbl = new QLabel(label, card);
         lbl->setStyleSheet(styles::kSmallInfo);
         lbl->setAlignment(Qt::AlignCenter);
+        lbl->setWordWrap(true);
         auto* v = new QLabel(val, card);
         v->setStyleSheet(QString("color: %1; font-size: 20px; font-weight: bold; border: none; background: transparent;").arg(color));
         v->setAlignment(Qt::AlignCenter);
@@ -157,18 +156,27 @@ QFrame* PsuPanel::createMonitoringSection()
         return v;
     };
 
+    // Row 1: power metrics (3 cards)
+    auto* metricsRow1 = new QHBoxLayout();
+    metricsRow1->setSpacing(12);
     totalPowerLabel_ = createMetricCard("Total Power", "0.0 W", "#E74C3C");
-    metricsLayout->addWidget(totalPowerLabel_->parentWidget());
+    metricsRow1->addWidget(totalPowerLabel_->parentWidget());
     cpuPowerLabel_ = createMetricCard("CPU Power", "0.0 W", "#3498DB");
-    metricsLayout->addWidget(cpuPowerLabel_->parentWidget());
+    metricsRow1->addWidget(cpuPowerLabel_->parentWidget());
     gpuPowerLabel_ = createMetricCard("GPU Power", "0.0 W", "#2ECC71");
-    metricsLayout->addWidget(gpuPowerLabel_->parentWidget());
-    cpuErrorsLabel_ = createMetricCard("CPU Errors", "0", "#F39C12");
-    metricsLayout->addWidget(cpuErrorsLabel_->parentWidget());
-    gpuErrorsLabel_ = createMetricCard("GPU Errors", "0", "#F39C12");
-    metricsLayout->addWidget(gpuErrorsLabel_->parentWidget());
+    metricsRow1->addWidget(gpuPowerLabel_->parentWidget());
 
-    layout->addLayout(metricsLayout);
+    // Row 2: error metrics (2 cards)
+    auto* metricsRow2 = new QHBoxLayout();
+    metricsRow2->setSpacing(12);
+    cpuErrorsLabel_ = createMetricCard("CPU Errors", "0", "#F39C12");
+    metricsRow2->addWidget(cpuErrorsLabel_->parentWidget());
+    gpuErrorsLabel_ = createMetricCard("GPU Errors", "0", "#F39C12");
+    metricsRow2->addWidget(gpuErrorsLabel_->parentWidget());
+    metricsRow2->addStretch();
+
+    layout->addLayout(metricsRow1);
+    layout->addLayout(metricsRow2);
 
     // Status row
     auto* statusLayout = new QHBoxLayout();
@@ -266,13 +274,22 @@ void PsuPanel::updateMonitoring()
 
     auto m = engine_->get_metrics();
 
-    // Update power labels
-    totalPowerLabel_->setText(QString::number(m.total_power_watts, 'f', 1) + " W");
-    cpuPowerLabel_->setText(QString::number(m.cpu_power_watts, 'f', 1) + " W");
+    // Update power labels – show "N/A" when values are unavailable (0)
+    if (m.total_power_watts < 0.1) {
+        totalPowerLabel_->setText("N/A");
+    } else {
+        totalPowerLabel_->setText(QString::number(m.total_power_watts, 'f', 1) + " W");
+    }
+
+    if (m.cpu_power_watts < 0.1) {
+        cpuPowerLabel_->setText("N/A (~est)");
+    } else {
+        cpuPowerLabel_->setText(QString::number(m.cpu_power_watts, 'f', 1) + " W");
+    }
 
     // Show N/A when GPU is not running and reporting 0W
     if (!m.gpu_running && m.gpu_power_watts < 0.1) {
-        gpuPowerLabel_->setText("N/A (no backend)");
+        gpuPowerLabel_->setText("N/A (no GPU)");
     } else {
         gpuPowerLabel_->setText(QString::number(m.gpu_power_watts, 'f', 1) + " W");
     }
@@ -293,8 +310,10 @@ void PsuPanel::updateMonitoring()
     else
         elapsedLabel_->setText(QString("Elapsed: %1s").arg(secs));
 
-    // Update chart with total power
-    powerChart_->addPoint(m.total_power_watts);
+    // Update chart with total power – skip 0 values to avoid flat line
+    if (m.total_power_watts > 0.1) {
+        powerChart_->addPoint(m.total_power_watts);
+    }
 }
 
 }} // namespace occt::gui

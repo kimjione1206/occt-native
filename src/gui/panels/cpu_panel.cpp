@@ -178,6 +178,7 @@ QFrame* CpuPanel::createMonitoringSection()
     auto createMetric = [frame](const QString& label, const QString& initVal) -> QLabel* {
         auto* card = new QFrame(frame);
         card->setStyleSheet(styles::kCardFrame);
+        card->setMinimumWidth(100);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 8, 12, 8);
         auto* lbl = new QLabel(label, card);
@@ -191,7 +192,7 @@ QFrame* CpuPanel::createMonitoringSection()
 
     gflopsValueLabel_ = createMetric("GFLOPS", "0.00");
     metricsLayout->addWidget(gflopsValueLabel_->parentWidget());
-    tempLabel_ = createMetric("Temperature", "-- C");
+    tempLabel_ = createMetric("Temperature", "-- \u00B0C");
     metricsLayout->addWidget(tempLabel_->parentWidget());
     powerLabel_ = createMetric("Power", "-- W");
     metricsLayout->addWidget(powerLabel_->parentWidget());
@@ -421,20 +422,28 @@ void CpuPanel::updateMonitoring()
 
     if (cpuTemp > 0)
         tempLabel_->setText(QString::number(cpuTemp, 'f', 1) + " \u00B0C");
+    else
+        tempLabel_->setText("N/A");
 
     if (cpuPower > 0)
         powerLabel_->setText(QString::number(cpuPower, 'f', 1) + " W");
+    else
+        powerLabel_->setText("N/A");
 
     // Update CPU frequency from SensorManager if available
+    bool freqUpdated = false;
     if (sensorMgr_) {
         auto readings = sensorMgr_->get_all_readings();
         for (const auto& r : readings) {
             if (r.category == "CPU" && r.unit == "MHz" && r.value > 0) {
                 freqLabel_->setText(QString::number(r.value, 'f', 0) + " MHz");
+                freqUpdated = true;
                 break;
             }
         }
     }
+    if (!freqUpdated)
+        freqLabel_->setText("N/A");
 
     // Update error status
     updateErrorStatus(m.error_count, m.core_has_error);

@@ -638,6 +638,7 @@ void CpuEngine::metrics_thread_func() {
         if (sensor_mgr_) {
             metrics.temperature = sensor_mgr_->get_cpu_temperature();
             metrics.power_watts = sensor_mgr_->get_cpu_power();
+            metrics.power_estimated = sensor_mgr_->is_cpu_power_estimated();
         }
 
         // Track peak GFLOPS

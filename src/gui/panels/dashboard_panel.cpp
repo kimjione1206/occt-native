@@ -326,13 +326,29 @@ void DashboardPanel::updateGauges()
     }
 #endif
 
+    // CPU temperature overlay: show "N/A" when sensor reports 0
+    if (sensorMgr_) {
+        double cpuTemp = sensorMgr_->get_cpu_temperature();
+        if (cpuTemp < 0.1) {
+            cpuGauge_->setOverlayText("N/A");
+        } else {
+            cpuGauge_->setOverlayText("");  // revert to numeric display
+        }
+    }
+
     // GPU gauge: try SensorManager for GPU temperature or usage
     if (sensorMgr_) {
         double gpuTemp = sensorMgr_->get_gpu_temperature();
         if (gpuTemp > 0) {
             // Map temperature to gauge: 0-100°C -> 0-100%
             gpuGauge_->setValue(std::min(gpuTemp, 100.0));
+            gpuGauge_->setOverlayText("");  // revert to numeric display
+        } else {
+            gpuGauge_->setOverlayText("N/A");
         }
+    } else {
+        // No SensorManager at all – cannot read GPU data
+        gpuGauge_->setOverlayText("N/A");
     }
 }
 

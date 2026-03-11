@@ -205,8 +205,14 @@ int CliRunner::run_test(const CliOptions& opts)
             last_metrics = m;
             QJsonObject metric;
             metric["gflops"] = m.gflops;
-            metric["temperature"] = m.temperature;
+            // Output null instead of 0 when temperature is unavailable
+            if (m.temperature > 0.0)
+                metric["temperature"] = m.temperature;
+            else
+                metric["temperature"] = QJsonValue(QJsonValue::Null);
             metric["power_watts"] = m.power_watts;
+            if (m.power_estimated)
+                metric["power_estimated"] = true;
             metric["threads"] = m.active_threads;
             metric["elapsed"] = m.elapsed_secs;
             metric["error_count"] = m.error_count;
@@ -405,7 +411,10 @@ int CliRunner::run_test(const CliOptions& opts)
             last_gpu_metrics = m;
             QJsonObject metric;
             metric["gflops"] = m.gflops;
-            metric["temperature"] = m.temperature;
+            if (m.temperature > 0.0)
+                metric["temperature"] = m.temperature;
+            else
+                metric["temperature"] = QJsonValue(QJsonValue::Null);
             metric["power_watts"] = m.power_watts;
             metric["gpu_usage_pct"] = m.gpu_usage_pct;
             metric["vram_usage_pct"] = m.vram_usage_pct;
@@ -1127,7 +1136,12 @@ int CliRunner::run_combined(const CliOptions& opts)
                 last_cpu = m;
                 QJsonObject metric;
                 metric["gflops"] = m.gflops;
-                metric["temperature"] = m.temperature;
+                if (m.temperature > 0.0)
+                    metric["temperature"] = m.temperature;
+                else
+                    metric["temperature"] = QJsonValue(QJsonValue::Null);
+                if (m.power_estimated)
+                    metric["power_estimated"] = true;
                 metric["threads"] = m.active_threads;
                 metric["error_count"] = m.error_count;
                 metric["elapsed"] = m.elapsed_secs;
@@ -1144,7 +1158,10 @@ int CliRunner::run_combined(const CliOptions& opts)
                 last_gpu = m;
                 QJsonObject metric;
                 metric["gflops"] = m.gflops;
-                metric["temperature"] = m.temperature;
+                if (m.temperature > 0.0)
+                    metric["temperature"] = m.temperature;
+                else
+                    metric["temperature"] = QJsonValue(QJsonValue::Null);
                 metric["vram_errors"] = static_cast<qint64>(m.vram_errors);
                 metric["elapsed"] = m.elapsed_secs;
                 emit_json("metric", "gpu", QJsonDocument(metric).toVariant());

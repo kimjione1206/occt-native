@@ -43,6 +43,7 @@ struct CpuMetrics {
     double peak_gflops = 0.0;          // Peak GFLOPS
     double temperature = 0.0;          // CPU temperature (Celsius)
     double power_watts = 0.0;          // Power consumption
+    bool power_estimated = false;      // True if power is TDP*usage% estimate
     int active_threads = 0;            // Active thread count
     uint64_t total_ops = 0;            // Total operations
     double elapsed_secs = 0.0;         // Elapsed time

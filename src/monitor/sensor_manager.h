@@ -10,9 +10,14 @@
 
 #include <QVector>
 
+#ifdef _WIN32
+    #include <pdh.h>
+#endif
+
 namespace occt {
 
 struct HardwareNode; // forward decl from sensor_model.h
+class LhmBridge;     // forward decl from lhm_bridge.h
 
 struct SensorReading {
     std::string name;
@@ -52,6 +57,10 @@ public:
     double get_gpu_temperature() const;
     double get_cpu_power() const;
 
+    /// Returns true when get_cpu_power() is a TDP*usage% estimate rather than
+    /// a real hardware reading (e.g. from LHM or RAPL).
+    bool is_cpu_power_estimated() const;
+
     /// Alert callback: fired when a sensor exceeds a threshold.
     using AlertCallback = std::function<void(const std::string& sensor,
                                              double value, double threshold)>;
@@ -87,6 +96,7 @@ private:
 
     mutable std::mutex readings_mutex_;
     std::vector<SensorReading> readings_;
+    bool cpu_power_estimated_ = false;  // True when using TDP*usage% fallback
 
     AlertCallback alert_cb_;
     std::mutex cb_mutex_;
@@ -112,6 +122,19 @@ private:
 
     void cleanup_wmi();
     bool reconnect_wmi();
+
+    // PDH-based dynamic CPU frequency
+    PDH_HQUERY   pdh_query_        = nullptr;
+    PDH_HCOUNTER pdh_freq_counter_ = nullptr;
+    void init_pdh();
+    void cleanup_pdh();
+
+    // Cached CPU info for power estimation and frequency calculation
+    double      max_clock_speed_ = 0.0;   // MHz from Win32_Processor
+    std::string cpu_brand_;                // CPU brand string
+
+    // LHM bridge for accurate hardware monitoring
+    LhmBridge*  lhm_bridge_ = nullptr;
 #endif
 };
 

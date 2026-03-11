@@ -146,17 +146,16 @@ QFrame* StoragePanel::createMonitoringSection()
     statusLabel_->setVisible(false);
     layout->addWidget(statusLabel_);
 
-    // Metrics row
-    auto* metricsLayout = new QHBoxLayout();
-    metricsLayout->setSpacing(16);
-
+    // Metrics rows (split 8 cards into 2 rows of 4)
     auto createMetric = [frame](const QString& label, const QString& val) -> QLabel* {
         auto* card = new QFrame(frame);
         card->setStyleSheet(styles::kCardFrame);
+        card->setMinimumWidth(90);
         auto* cl = new QVBoxLayout(card);
         cl->setContentsMargins(12, 8, 12, 8);
         auto* lbl = new QLabel(label, card);
         lbl->setStyleSheet(styles::kSmallInfo);
+        lbl->setWordWrap(true);
         auto* v = new QLabel(val, card);
         v->setStyleSheet(styles::kPanelTitle);
         cl->addWidget(lbl);
@@ -164,24 +163,32 @@ QFrame* StoragePanel::createMonitoringSection()
         return v;
     };
 
+    // Row 1: IOPS, Throughput, Avg Latency, Blocks Verified
+    auto* metricsRow1 = new QHBoxLayout();
+    metricsRow1->setSpacing(12);
     iopsLabel_ = createMetric("IOPS", "0");
-    metricsLayout->addWidget(iopsLabel_->parentWidget());
+    metricsRow1->addWidget(iopsLabel_->parentWidget());
     throughputLabel_ = createMetric("Throughput", "0 MB/s");
-    metricsLayout->addWidget(throughputLabel_->parentWidget());
+    metricsRow1->addWidget(throughputLabel_->parentWidget());
     latencyLabel_ = createMetric("Avg Latency", "-- ms");
-    metricsLayout->addWidget(latencyLabel_->parentWidget());
+    metricsRow1->addWidget(latencyLabel_->parentWidget());
     blocksVerifiedLabel_ = createMetric("Blocks Verified", "0");
-    metricsLayout->addWidget(blocksVerifiedLabel_->parentWidget());
-    verifyErrorsLabel_ = createMetric("Verify Errors", "0");
-    metricsLayout->addWidget(verifyErrorsLabel_->parentWidget());
-    crcErrorsLabel_ = createMetric("CRC Errors", "0");
-    metricsLayout->addWidget(crcErrorsLabel_->parentWidget());
-    patternErrorsLabel_ = createMetric("Pattern Errors", "0");
-    metricsLayout->addWidget(patternErrorsLabel_->parentWidget());
-    verifyMbsLabel_ = createMetric("Verify Speed", "-- MB/s");
-    metricsLayout->addWidget(verifyMbsLabel_->parentWidget());
+    metricsRow1->addWidget(blocksVerifiedLabel_->parentWidget());
 
-    layout->addLayout(metricsLayout);
+    // Row 2: Verify Errors, CRC Errors, Pattern Errors, Verify Speed
+    auto* metricsRow2 = new QHBoxLayout();
+    metricsRow2->setSpacing(12);
+    verifyErrorsLabel_ = createMetric("Verify Errors", "0");
+    metricsRow2->addWidget(verifyErrorsLabel_->parentWidget());
+    crcErrorsLabel_ = createMetric("CRC Errors", "0");
+    metricsRow2->addWidget(crcErrorsLabel_->parentWidget());
+    patternErrorsLabel_ = createMetric("Pattern Errors", "0");
+    metricsRow2->addWidget(patternErrorsLabel_->parentWidget());
+    verifyMbsLabel_ = createMetric("Verify Speed", "-- MB/s");
+    metricsRow2->addWidget(verifyMbsLabel_->parentWidget());
+
+    layout->addLayout(metricsRow1);
+    layout->addLayout(metricsRow2);
 
     // IOPS chart
     iopsChart_ = new RealtimeChart(frame);

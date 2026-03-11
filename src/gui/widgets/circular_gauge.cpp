@@ -79,7 +79,9 @@ void CircularGauge::paintEvent(QPaintEvent* /*event*/)
     painter.setFont(valueFont);
     painter.setPen(QColor(236, 240, 241));
 
-    QString valueStr = QString::number(static_cast<int>(value_)) + unit_;
+    QString valueStr = overlayText_.isEmpty()
+        ? QString::number(static_cast<int>(value_)) + unit_
+        : overlayText_;
     QRectF textRect = gaugeRect;
     textRect.moveTop(textRect.top() - side * 0.05);
     painter.drawText(textRect, Qt::AlignCenter, valueStr);

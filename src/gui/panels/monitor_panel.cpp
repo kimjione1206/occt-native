@@ -154,10 +154,15 @@ void MonitorPanel::setupUi()
     sensorTree_ = new QTreeWidget(treeFrame);
     sensorTree_->setHeaderLabels({"Sensor", "Value", "Min", "Max"});
     sensorTree_->header()->setStretchLastSection(false);
+    sensorTree_->header()->setMinimumSectionSize(50);
     sensorTree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     sensorTree_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     sensorTree_->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     sensorTree_->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    sensorTree_->setColumnWidth(0, 150);
+    sensorTree_->setColumnWidth(1, 80);
+    sensorTree_->setColumnWidth(2, 60);
+    sensorTree_->setColumnWidth(3, 60);
     sensorTree_->setRootIsDecorated(true);
     sensorTree_->setAnimated(true);
     sensorTree_->setStyleSheet(
@@ -221,7 +226,7 @@ void MonitorPanel::setupUi()
     chartLayout->addWidget(sensorChart_, 1);
 
     splitter->addWidget(chartFrame);
-    splitter->setSizes({300, 700});
+    splitter->setSizes({400, 600});
 
     mainLayout->addWidget(splitter, 1);
 }

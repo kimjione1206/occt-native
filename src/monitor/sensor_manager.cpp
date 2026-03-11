@@ -1,5 +1,6 @@
 #include "sensor_manager.h"
 #include "sensor_model.h"
+#include "lhm_bridge.h"
 
 #include <algorithm>
 #include <chrono>
@@ -12,9 +13,11 @@
     #include <windows.h>
     #include <comdef.h>
     #include <wbemidl.h>
+    #include <pdh.h>
     #pragma comment(lib, "wbemuuid.lib")
     #pragma comment(lib, "ole32.lib")
     #pragma comment(lib, "oleaut32.lib")
+    #pragma comment(lib, "pdh.lib")
 #elif defined(__linux__)
     #include <dirent.h>
     #include <dlfcn.h>
@@ -46,6 +49,33 @@ typedef int (*nvmlDeviceGetHandleByIndex_t)(unsigned int, void**);
 typedef int (*nvmlDeviceGetTemperature_t)(void*, int, unsigned int*);
 typedef int (*nvmlDeviceGetPowerUsage_t)(void*, unsigned int*);
 typedef int (*nvmlDeviceGetName_t)(void*, char*, unsigned int);
+#endif
+
+// ─── CPU TDP estimation helper (Windows only) ───────────────────────────────
+#if defined(_WIN32)
+static double estimate_tdp(const std::string& brand) {
+    // Common TDP values by CPU family (desktop defaults)
+    if (brand.find("i9-14") != std::string::npos || brand.find("i9-13") != std::string::npos) return 253.0;
+    if (brand.find("i7-14") != std::string::npos || brand.find("i7-13") != std::string::npos) return 253.0;
+    if (brand.find("i5-14") != std::string::npos || brand.find("i5-13") != std::string::npos) return 154.0;
+    if (brand.find("i3-14") != std::string::npos || brand.find("i3-13") != std::string::npos) return 89.0;
+    if (brand.find("i9-12") != std::string::npos) return 241.0;
+    if (brand.find("i7-12") != std::string::npos) return 190.0;
+    if (brand.find("i5-12") != std::string::npos) return 148.0;
+    if (brand.find("Ryzen 9 7") != std::string::npos) return 170.0;
+    if (brand.find("Ryzen 7 7") != std::string::npos) return 105.0;
+    if (brand.find("Ryzen 5 7") != std::string::npos) return 105.0;
+    if (brand.find("Ryzen 9 5") != std::string::npos) return 105.0;
+    if (brand.find("Ryzen 7 5") != std::string::npos) return 65.0;
+    if (brand.find("Ryzen 5 5") != std::string::npos) return 65.0;
+    if (brand.find("Ryzen 9 9") != std::string::npos) return 170.0;
+    if (brand.find("Ryzen 7 9") != std::string::npos) return 105.0;
+    if (brand.find("Ryzen 5 9") != std::string::npos) return 65.0;
+    if (brand.find("EPYC") != std::string::npos) return 280.0;
+    if (brand.find("Xeon") != std::string::npos) return 150.0;
+    // Default desktop TDP
+    return 95.0;
+}
 #endif
 
 namespace occt {
@@ -83,6 +113,9 @@ SensorManager::~SensorManager() {
 
 #ifdef _WIN32
     cleanup_wmi();
+    cleanup_pdh();
+    delete lhm_bridge_;
+    lhm_bridge_ = nullptr;
 #endif
 
     // Unload NVML
@@ -121,6 +154,15 @@ bool SensorManager::initialize() {
 #if defined(_WIN32)
     has_wmi_ = init_wmi();
     any |= has_wmi_;
+
+    // Initialize PDH for dynamic CPU frequency
+    init_pdh();
+
+    // Initialize LHM bridge for accurate sensor data
+    lhm_bridge_ = new LhmBridge(nullptr);
+    if (lhm_bridge_->initialize()) {
+        std::cout << "[Sensor] LHM bridge active" << std::endl;
+    }
 #elif defined(__linux__)
     has_sysfs_ = init_sysfs();
     any |= has_sysfs_;
@@ -195,6 +237,11 @@ double SensorManager::get_cpu_power() const {
         }
     }
     return 0.0;
+}
+
+bool SensorManager::is_cpu_power_estimated() const {
+    std::lock_guard<std::mutex> lk(readings_mutex_);
+    return cpu_power_estimated_;
 }
 
 void SensorManager::set_alert_callback(AlertCallback cb) {
@@ -787,6 +834,37 @@ void SensorManager::collect_basic_system_info() {
     }
 }
 
+void SensorManager::init_pdh() {
+    PDH_STATUS status = PdhOpenQuery(nullptr, 0, &pdh_query_);
+    if (status != ERROR_SUCCESS) {
+        std::cerr << "[Sensor] PDH: failed to open query (0x"
+                  << std::hex << status << std::dec << ")" << std::endl;
+        pdh_query_ = nullptr;
+        return;
+    }
+
+    status = PdhAddEnglishCounterW(pdh_query_,
+        L"\\Processor Information(_Total)\\% of Maximum Frequency",
+        0, &pdh_freq_counter_);
+    if (status != ERROR_SUCCESS) {
+        std::cerr << "[Sensor] PDH: failed to add frequency counter (0x"
+                  << std::hex << status << std::dec << ")" << std::endl;
+        pdh_freq_counter_ = nullptr;
+    }
+
+    // Initial data collection (PDH requires two samples)
+    PdhCollectQueryData(pdh_query_);
+    std::cout << "[Sensor] PDH dynamic frequency monitoring initialized" << std::endl;
+}
+
+void SensorManager::cleanup_pdh() {
+    if (pdh_query_) {
+        PdhCloseQuery(pdh_query_);
+        pdh_query_ = nullptr;
+        pdh_freq_counter_ = nullptr;
+    }
+}
+
 void SensorManager::poll_wmi() {
     // WMI query timeout: 5 seconds (prevents hangs on some machines)
     static const long kWmiTimeoutMs = 5000;
@@ -811,62 +889,34 @@ void SensorManager::poll_wmi() {
                h == RPC_E_SERVER_DIED_DNE;
     };
 
-    // --- Query ROOT\WMI for thermal zones (cached connection) ---
-    if (wmi_svc_root_wmi_) {
-        auto* services = static_cast<IWbemServices*>(wmi_svc_root_wmi_);
-        IEnumWbemClassObject* enumerator = nullptr;
-        hr = services->ExecQuery(
-            _bstr_t(L"WQL"),
-            _bstr_t(L"SELECT * FROM MSAcpi_ThermalZoneTemperature"),
-            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-            nullptr, &enumerator);
-
-        if (is_connection_error(hr)) {
-            // Connection lost - try to reconnect on next poll
-            std::cerr << "[Sensor] WMI ROOT\\WMI connection lost, will reconnect" << std::endl;
-            cleanup_wmi();
-            collect_basic_system_info();
-            return;
-        }
-
-        if (SUCCEEDED(hr) && enumerator) {
-            IWbemClassObject* obj = nullptr;
-            ULONG returned = 0;
-            int zone_idx = 0;
-
-            while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
-                VARIANT vt;
-                hr = obj->Get(L"CurrentTemperature", 0, &vt, nullptr, nullptr);
-                if (SUCCEEDED(hr)) {
-                    double temp_c = (vt.intVal / WMI_TEMP_TENTHS_TO_DEGREES) - KELVIN_TO_CELSIUS_OFFSET;
-                    update_reading("ACPI Zone " + std::to_string(zone_idx),
-                                   "CPU", temp_c, "C");
-                    VariantClear(&vt);
-                }
-                obj->Release();
-                zone_idx++;
+    // --- Try LHM bridge first (most accurate) ---
+    bool have_lhm_data = false;
+    if (lhm_bridge_ && lhm_bridge_->is_available()) {
+        std::vector<SensorReading> lhm_readings;
+        lhm_bridge_->poll(lhm_readings);
+        if (!lhm_readings.empty()) {
+            for (const auto& r : lhm_readings) {
+                update_reading(r.name, r.category, r.value, r.unit);
             }
-            enumerator->Release();
-        } else if (hr == WBEM_E_ACCESS_DENIED) {
-            std::cerr << "[Sensor] Warning: WMI thermal query access denied" << std::endl;
+            have_lhm_data = true;
         }
     }
 
-    // --- Query ROOT\CIMV2 for fans, CPU info, battery (cached connection) ---
-    if (wmi_svc_cimv2_) {
-        auto* cimv2 = static_cast<IWbemServices*>(wmi_svc_cimv2_);
-
-        // Fans
-        {
+    if (!have_lhm_data) {
+        // --- Query ROOT\WMI for thermal zones (cached connection) ---
+        int zone_idx = 0;
+        if (wmi_svc_root_wmi_) {
+            auto* services = static_cast<IWbemServices*>(wmi_svc_root_wmi_);
             IEnumWbemClassObject* enumerator = nullptr;
-            hr = cimv2->ExecQuery(
+            hr = services->ExecQuery(
                 _bstr_t(L"WQL"),
-                _bstr_t(L"SELECT * FROM Win32_Fan"),
+                _bstr_t(L"SELECT * FROM MSAcpi_ThermalZoneTemperature"),
                 WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
                 nullptr, &enumerator);
 
             if (is_connection_error(hr)) {
-                std::cerr << "[Sensor] WMI CIMV2 connection lost, will reconnect" << std::endl;
+                // Connection lost - try to reconnect on next poll
+                std::cerr << "[Sensor] WMI ROOT\\WMI connection lost, will reconnect" << std::endl;
                 cleanup_wmi();
                 collect_basic_system_info();
                 return;
@@ -875,43 +925,143 @@ void SensorManager::poll_wmi() {
             if (SUCCEEDED(hr) && enumerator) {
                 IWbemClassObject* obj = nullptr;
                 ULONG returned = 0;
-                int fan_idx = 0;
 
                 while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
                     VARIANT vt;
-                    hr = obj->Get(L"DesiredSpeed", 0, &vt, nullptr, nullptr);
+                    hr = obj->Get(L"CurrentTemperature", 0, &vt, nullptr, nullptr);
                     if (SUCCEEDED(hr)) {
-                        update_reading("Fan " + std::to_string(fan_idx),
-                                       "Motherboard",
-                                       static_cast<double>(vt.intVal), "RPM");
+                        double temp_c = (vt.intVal / WMI_TEMP_TENTHS_TO_DEGREES) - KELVIN_TO_CELSIUS_OFFSET;
+                        update_reading("ACPI Zone " + std::to_string(zone_idx),
+                                       "CPU", temp_c, "C");
                         VariantClear(&vt);
                     }
                     obj->Release();
-                    fan_idx++;
+                    zone_idx++;
                 }
                 enumerator->Release();
+            } else if (hr == WBEM_E_ACCESS_DENIED) {
+                std::cerr << "[Sensor] Warning: WMI thermal query access denied" << std::endl;
             }
         }
 
-        // CPU frequency and core count (once)
-        {
-            static bool cpu_info_collected = false;
-            if (!cpu_info_collected) {
+        // Log when MSAcpi returns 0 zones and try fallback
+        if (zone_idx == 0) {
+            static bool thermal_fallback_logged = false;
+            if (!thermal_fallback_logged) {
+                std::cerr << "[Sensor] MSAcpi_ThermalZoneTemperature returned 0 zones, trying fallback" << std::endl;
+                thermal_fallback_logged = true;
+            }
+
+            // Fallback: try performance counter thermal zones on CIMV2
+            if (wmi_svc_cimv2_) {
+                auto* cimv2 = static_cast<IWbemServices*>(wmi_svc_cimv2_);
                 IEnumWbemClassObject* enumerator = nullptr;
                 hr = cimv2->ExecQuery(
                     _bstr_t(L"WQL"),
-                    _bstr_t(L"SELECT MaxClockSpeed, NumberOfCores FROM Win32_Processor"),
+                    _bstr_t(L"SELECT Temperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"),
                     WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
                     nullptr, &enumerator);
                 if (SUCCEEDED(hr) && enumerator) {
                     IWbemClassObject* obj = nullptr;
                     ULONG returned = 0;
+                    int tz_idx = 0;
+                    while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
+                        VARIANT vt;
+                        hr = obj->Get(L"Temperature", 0, &vt, nullptr, nullptr);
+                        if (SUCCEEDED(hr)) {
+                            double temp_c = static_cast<double>(vt.intVal) - KELVIN_TO_CELSIUS_OFFSET;
+                            if (temp_c > 0 && temp_c < 150) {
+                                update_reading("Thermal Zone " + std::to_string(tz_idx),
+                                               "CPU", temp_c, "C");
+                            }
+                            VariantClear(&vt);
+                        }
+                        obj->Release();
+                        tz_idx++;
+                    }
+                    enumerator->Release();
+
+                    if (tz_idx == 0) {
+                        static bool perf_thermal_logged = false;
+                        if (!perf_thermal_logged) {
+                            std::cerr << "[Sensor] Win32_PerfFormattedData_Counters_ThermalZoneInformation also returned 0 zones" << std::endl;
+                            perf_thermal_logged = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Query ROOT\CIMV2 for fans, CPU info, battery (cached connection) ---
+        if (wmi_svc_cimv2_) {
+            auto* cimv2 = static_cast<IWbemServices*>(wmi_svc_cimv2_);
+
+            // Fans
+            {
+                IEnumWbemClassObject* enumerator = nullptr;
+                hr = cimv2->ExecQuery(
+                    _bstr_t(L"WQL"),
+                    _bstr_t(L"SELECT * FROM Win32_Fan"),
+                    WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                    nullptr, &enumerator);
+
+                if (is_connection_error(hr)) {
+                    std::cerr << "[Sensor] WMI CIMV2 connection lost, will reconnect" << std::endl;
+                    cleanup_wmi();
+                    collect_basic_system_info();
+                    return;
+                }
+
+                if (SUCCEEDED(hr) && enumerator) {
+                    IWbemClassObject* obj = nullptr;
+                    ULONG returned = 0;
+                    int fan_idx = 0;
+
+                    while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
+                        VARIANT vt;
+                        hr = obj->Get(L"DesiredSpeed", 0, &vt, nullptr, nullptr);
+                        if (SUCCEEDED(hr)) {
+                            update_reading("Fan " + std::to_string(fan_idx),
+                                           "Motherboard",
+                                           static_cast<double>(vt.intVal), "RPM");
+                            VariantClear(&vt);
+                        }
+                        obj->Release();
+                        fan_idx++;
+                    }
+                    enumerator->Release();
+
+                    if (fan_idx == 0) {
+                        static bool fan_empty_logged = false;
+                        if (!fan_empty_logged) {
+                            std::cerr << "[Sensor] Win32_Fan returned 0 fans" << std::endl;
+                            fan_empty_logged = true;
+                        }
+                    }
+                }
+            }
+
+            // CPU info: MaxClockSpeed, NumberOfCores, Name (brand)
+            // Always query to cache max_clock_speed_ and cpu_brand_
+            {
+                static bool cpu_info_collected = false;
+                IEnumWbemClassObject* enumerator = nullptr;
+                hr = cimv2->ExecQuery(
+                    _bstr_t(L"WQL"),
+                    _bstr_t(L"SELECT MaxClockSpeed, NumberOfCores, Name FROM Win32_Processor"),
+                    WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                    nullptr, &enumerator);
+                if (SUCCEEDED(hr) && enumerator) {
+                    IWbemClassObject* obj = nullptr;
+                    ULONG returned = 0;
+                    bool got_data = false;
                     if (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
                         VARIANT vt;
                         hr = obj->Get(L"MaxClockSpeed", 0, &vt, nullptr, nullptr);
                         if (SUCCEEDED(hr)) {
+                            max_clock_speed_ = static_cast<double>(vt.intVal);
                             update_reading("CPU Max Frequency", "CPU",
-                                           static_cast<double>(vt.intVal), "MHz");
+                                           max_clock_speed_, "MHz");
                             VariantClear(&vt);
                         }
                         hr = obj->Get(L"NumberOfCores", 0, &vt, nullptr, nullptr);
@@ -920,41 +1070,65 @@ void SensorManager::poll_wmi() {
                                            static_cast<double>(vt.intVal), "count");
                             VariantClear(&vt);
                         }
+                        // Get CPU brand name for TDP estimation
+                        if (!cpu_info_collected) {
+                            hr = obj->Get(L"Name", 0, &vt, nullptr, nullptr);
+                            if (SUCCEEDED(hr) && vt.vt == VT_BSTR) {
+                                int len = WideCharToMultiByte(CP_UTF8, 0, vt.bstrVal, -1,
+                                                              nullptr, 0, nullptr, nullptr);
+                                if (len > 0) {
+                                    cpu_brand_.resize(len - 1);
+                                    WideCharToMultiByte(CP_UTF8, 0, vt.bstrVal, -1,
+                                                        &cpu_brand_[0], len, nullptr, nullptr);
+                                }
+                                VariantClear(&vt);
+                            }
+                        }
                         obj->Release();
+                        got_data = true;
                         cpu_info_collected = true;
+                    }
+                    enumerator->Release();
+
+                    if (!got_data) {
+                        static bool cpu_empty_logged = false;
+                        if (!cpu_empty_logged) {
+                            std::cerr << "[Sensor] Win32_Processor returned no data" << std::endl;
+                            cpu_empty_logged = true;
+                        }
+                    }
+                }
+            }
+
+            // Battery info for laptops
+            {
+                IEnumWbemClassObject* enumerator = nullptr;
+                hr = cimv2->ExecQuery(
+                    _bstr_t(L"WQL"),
+                    _bstr_t(L"SELECT EstimatedChargeRemaining FROM Win32_Battery"),
+                    WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                    nullptr, &enumerator);
+                if (SUCCEEDED(hr) && enumerator) {
+                    IWbemClassObject* obj = nullptr;
+                    ULONG returned = 0;
+                    if (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
+                        VARIANT vt;
+                        hr = obj->Get(L"EstimatedChargeRemaining", 0, &vt, nullptr, nullptr);
+                        if (SUCCEEDED(hr)) {
+                            update_reading("Battery Level", "System",
+                                           static_cast<double>(vt.intVal), "%");
+                            VariantClear(&vt);
+                        }
+                        obj->Release();
                     }
                     enumerator->Release();
                 }
             }
         }
+    } // end if (!have_lhm_data)
 
-        // Battery info for laptops
-        {
-            IEnumWbemClassObject* enumerator = nullptr;
-            hr = cimv2->ExecQuery(
-                _bstr_t(L"WQL"),
-                _bstr_t(L"SELECT EstimatedChargeRemaining FROM Win32_Battery"),
-                WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-                nullptr, &enumerator);
-            if (SUCCEEDED(hr) && enumerator) {
-                IWbemClassObject* obj = nullptr;
-                ULONG returned = 0;
-                if (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
-                    VARIANT vt;
-                    hr = obj->Get(L"EstimatedChargeRemaining", 0, &vt, nullptr, nullptr);
-                    if (SUCCEEDED(hr)) {
-                        update_reading("Battery Level", "System",
-                                       static_cast<double>(vt.intVal), "%");
-                        VariantClear(&vt);
-                    }
-                    obj->Release();
-                }
-                enumerator->Release();
-            }
-        }
-    }
-
-    // --- A) CPU usage via GetSystemTimes() (no WMI needed) ---
+    // --- A) CPU usage via GetSystemTimes() (always collected) ---
+    double cpu_pct = 0.0;
     {
         static ULARGE_INTEGER prev_idle = {0}, prev_kernel = {0}, prev_user = {0};
         FILETIME idle_ft, kernel_ft, user_ft;
@@ -972,7 +1146,7 @@ void SensorManager::poll_wmi() {
                 ULONGLONG d_kernel = cur_kernel.QuadPart - prev_kernel.QuadPart;
                 ULONGLONG d_user = cur_user.QuadPart - prev_user.QuadPart;
                 ULONGLONG d_total = d_kernel + d_user;
-                double cpu_pct = (d_total > 0)
+                cpu_pct = (d_total > 0)
                     ? 100.0 * (d_total - d_idle) / d_total
                     : 0.0;
                 update_reading("CPU Usage", "CPU", cpu_pct, "%");
@@ -984,7 +1158,34 @@ void SensorManager::poll_wmi() {
         }
     }
 
-    // --- B) Memory info (always collected, no WMI needed) ---
+    // --- B) CPU power estimation (from usage * TDP) ---
+    if (!have_lhm_data && cpu_pct > 0.0) {
+        double tdp = estimate_tdp(cpu_brand_);
+        double estimated_power = tdp * (cpu_pct / 100.0);
+        update_reading("CPU Power", "CPU", estimated_power, "W");
+        {
+            std::lock_guard<std::mutex> lk(readings_mutex_);
+            cpu_power_estimated_ = true;
+        }
+    } else if (have_lhm_data) {
+        std::lock_guard<std::mutex> lk(readings_mutex_);
+        cpu_power_estimated_ = false;
+    }
+
+    // --- C) PDH dynamic CPU frequency ---
+    if (pdh_query_ && pdh_freq_counter_ && max_clock_speed_ > 0.0) {
+        PdhCollectQueryData(pdh_query_);
+        PDH_FMT_COUNTERVALUE val;
+        PDH_STATUS status = PdhGetFormattedCounterValue(
+            pdh_freq_counter_, PDH_FMT_DOUBLE, nullptr, &val);
+        if (status == ERROR_SUCCESS) {
+            double pct = val.doubleValue; // % of maximum frequency
+            double current_mhz = max_clock_speed_ * pct / 100.0;
+            update_reading("CPU Frequency", "CPU", current_mhz, "MHz");
+        }
+    }
+
+    // --- D) Memory info (always collected, no WMI needed) ---
     {
         MEMORYSTATUSEX mem{};
         mem.dwLength = sizeof(mem);
