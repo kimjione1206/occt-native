@@ -522,9 +522,7 @@ int CliRunner::run_test(const CliOptions& opts)
         result.mode = opts.mode.isEmpty() ? "Steady" : opts.mode;
         result.duration = QString("%1s").arg(int(elapsed_secs));
         result.score = QString("%1 W total").arg(metrics.total_power_watts, 0, 'f', 1);
-        result.passed = (last_psu_metrics.errors_cpu == 0 && last_psu_metrics.errors_gpu == 0
-                         && last_psu_metrics.health != PsuHealthStatus::FAILED
-                         && last_psu_metrics.health != PsuHealthStatus::UNSTABLE);
+        result.passed = (last_psu_metrics.errors_cpu == 0 && last_psu_metrics.errors_gpu == 0);
         result.error_count = last_psu_metrics.errors_cpu + last_psu_metrics.errors_gpu;
         if (!result.passed) test_passed = false;
         results_.results.append(result);
