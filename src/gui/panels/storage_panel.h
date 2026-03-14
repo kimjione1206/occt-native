@@ -50,6 +50,7 @@ private:
     QCheckBox* directIOCheck_ = nullptr;
     QSpinBox* queueDepthSpin_ = nullptr;
     QComboBox* blockSizeCombo_ = nullptr;
+    QComboBox* durationCombo_ = nullptr;
     QPushButton* startStopBtn_ = nullptr;
 
     // Monitoring

@@ -110,6 +110,21 @@ QFrame* StoragePanel::createSettingsSection()
     queueDepthSpin_->setValue(32);
     layout->addWidget(queueDepthSpin_);
 
+    // Duration
+    auto* durationLabel = new QLabel("Duration", frame);
+    durationLabel->setStyleSheet(styles::kSettingsLabel);
+    layout->addWidget(durationLabel);
+
+    durationCombo_ = new QComboBox(frame);
+    durationCombo_->addItem("1 minute", 60);
+    durationCombo_->addItem("5 minutes", 300);
+    durationCombo_->addItem("10 minutes", 600);
+    durationCombo_->addItem("30 minutes", 1800);
+    durationCombo_->addItem("1 hour", 3600);
+    durationCombo_->addItem("Unlimited", 0);
+    durationCombo_->setCurrentIndex(1); // default 5 min
+    layout->addWidget(durationCombo_);
+
     layout->addSpacing(20);
 
     startStopBtn_ = new QPushButton("Start Test", frame);
@@ -263,7 +278,8 @@ void StoragePanel::onStartStopClicked()
         QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
         std::string testPath = tempPath.toStdString();
 
-        if (!engine_->start(mode, testPath, 256, queueDepth)) {
+        int durationSec = durationCombo_->currentData().toInt();
+        if (!engine_->start(mode, testPath, 256, queueDepth, durationSec)) {
             QMessageBox::warning(this, "Storage Test Error",
                 QString::fromStdString(engine_->last_error()));
             isRunning_ = false;
