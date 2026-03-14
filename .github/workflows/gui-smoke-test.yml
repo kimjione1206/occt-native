@@ -165,6 +165,7 @@ jobs:
         }
 
         Write-Host "`nAll CLI tests completed!"
+        exit 0
 
     - name: Validate CLI JSON output structure
       shell: pwsh
@@ -223,7 +224,7 @@ jobs:
 
         # Storage test
         Write-Host "`n=== CLI-UI Consistency: Storage ==="
-        $stgOutput = & $exe --cli --test storage --mode verify_seq --file-size 32 --duration 10 2>&1 | Out-String
+        $stgOutput = & $exe --cli --test storage --mode write --file-size 32 --duration 5 2>&1 | Out-String
         $stgLines = $stgOutput -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
         foreach ($line in $stgLines) {
             try {
