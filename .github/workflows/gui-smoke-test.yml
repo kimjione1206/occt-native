@@ -50,6 +50,50 @@ jobs:
         $exe = "build/${{ env.BUILD_TYPE }}/occt_native.exe"
         Write-Host "Running CLI tests with exe: $exe"
 
+        # ── WMI Sensor Diagnostics ──
+        Write-Host "`n=== WMI Sensor Diagnostics ==="
+        Write-Host "-- MSAcpi_ThermalZoneTemperature (requires admin) --"
+        try {
+            $thermal = Get-WmiObject -Namespace "ROOT\WMI" -Class "MSAcpi_ThermalZoneTemperature" -ErrorAction Stop
+            foreach ($t in $thermal) {
+                $celsius = ($t.CurrentTemperature - 2732) / 10.0
+                Write-Host "  ThermalZone: ${celsius}°C (Active=$($t.Active))"
+            }
+        } catch {
+            Write-Host "  FAILED: $($_.Exception.Message)"
+        }
+
+        Write-Host "-- Win32_TemperatureProbe --"
+        try {
+            $probes = Get-WmiObject -Class "Win32_TemperatureProbe" -ErrorAction Stop
+            if ($probes) { foreach ($p in $probes) { Write-Host "  Probe: $($p.Name) = $($p.CurrentReading)" } }
+            else { Write-Host "  No probes found" }
+        } catch {
+            Write-Host "  FAILED: $($_.Exception.Message)"
+        }
+
+        Write-Host "-- Win32_PerfFormattedData_Counters_ThermalZoneInformation --"
+        try {
+            $tz = Get-WmiObject -Class "Win32_PerfFormattedData_Counters_ThermalZoneInformation" -ErrorAction Stop
+            if ($tz) { foreach ($z in $tz) { Write-Host "  Zone: $($z.Name) Temp=$($z.Temperature) HighPrec=$($z.HighPrecisionTemperature)" } }
+            else { Write-Host "  No thermal zones found" }
+        } catch {
+            Write-Host "  FAILED: $($_.Exception.Message)"
+        }
+
+        Write-Host "-- Win32_Processor (TDP/voltage info) --"
+        try {
+            $cpu = Get-WmiObject -Class "Win32_Processor" -ErrorAction Stop | Select-Object -First 1
+            Write-Host "  CPU: $($cpu.Name)"
+            Write-Host "  MaxClockSpeed: $($cpu.MaxClockSpeed) MHz"
+            Write-Host "  CurrentVoltage: $($cpu.CurrentVoltage)"
+            Write-Host "  NumberOfCores: $($cpu.NumberOfCores)"
+            Write-Host "  NumberOfLogicalProcessors: $($cpu.NumberOfLogicalProcessors)"
+        } catch {
+            Write-Host "  FAILED: $($_.Exception.Message)"
+        }
+        Write-Host ""
+
         Write-Host "`n=== CPU Test (AVX2) ==="
         & $exe --cli --test cpu --mode avx2 --duration 5 --threads 2 2>&1 | Tee-Object -FilePath cli_cpu.log
         Write-Host "Exit code: $LASTEXITCODE"
@@ -64,6 +108,22 @@ jobs:
 
         Write-Host "`n=== Storage Test (Verify Seq) ==="
         & $exe --cli --test storage --mode verify_seq --file-size 64 2>&1 | Tee-Object -FilePath cli_storage_verify.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Storage Test (Seq Read) ==="
+        & $exe --cli --test storage --mode read --duration 8 --file-size 64 2>&1 | Tee-Object -FilePath cli_storage_read.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Storage Test (Random Write) ==="
+        & $exe --cli --test storage --mode random_write --duration 8 --file-size 64 2>&1 | Tee-Object -FilePath cli_storage_randwrite.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Storage Test (Random Read) ==="
+        & $exe --cli --test storage --mode random_read --duration 8 --file-size 64 2>&1 | Tee-Object -FilePath cli_storage_randread.log
+        Write-Host "Exit code: $LASTEXITCODE"
+
+        Write-Host "`n=== Storage Test (Mixed IO) ==="
+        & $exe --cli --test storage --mode mixed --duration 8 --file-size 64 2>&1 | Tee-Object -FilePath cli_storage_mixed.log
         Write-Host "Exit code: $LASTEXITCODE"
 
         Write-Host "`n=== Benchmark Test (CPU) ==="
