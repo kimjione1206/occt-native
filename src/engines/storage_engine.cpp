@@ -18,6 +18,15 @@
     #define NOMINMAX
     #include <windows.h>
     #include <io.h>
+
+// Convert UTF-8 std::string to std::wstring for Windows Unicode APIs
+static std::wstring utf8_to_wide(const std::string& s) {
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return {};
+    std::wstring ws(wlen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], wlen);
+    return ws;
+}
 #else
     #include <fcntl.h>
     #include <sys/stat.h>
@@ -186,17 +195,6 @@ void StorageEngine::set_metrics_callback(MetricsCallback cb) {
 }
 
 // ─── Platform-specific helpers ───────────────────────────────────────────────
-
-#if defined(_WIN32)
-// Convert UTF-8 std::string to std::wstring for Windows Unicode APIs
-static std::wstring utf8_to_wide(const std::string& s) {
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    if (wlen <= 0) return {};
-    std::wstring ws(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], wlen);
-    return ws;
-}
-#endif
 
 intptr_t StorageEngine::open_direct(const std::string& path, bool read_only) {
 #if defined(_WIN32)
