@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QMutexLocker>
 #include <QTextStream>
+#include <QThread>
 
 #include <cstdio>
 
@@ -49,8 +50,12 @@ void FileLogger::messageHandler(QtMsgType type,
     case QtFatalMsg:    level = "FATAL"; break;
     }
 
-    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
-    QString formatted = QString("[%1] %2 %3\n").arg(timestamp, level, msg);
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
+    quint64 tid = reinterpret_cast<quint64>(QThread::currentThreadId());
+    QString formatted = QString("[%1] [tid:%2] %3 %4\n")
+        .arg(timestamp)
+        .arg(tid)
+        .arg(level, msg);
 
     // Always forward to stderr so qDebug() output still appears in console
     QByteArray utf8 = formatted.toUtf8();
