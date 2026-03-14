@@ -4,11 +4,8 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstring>
-
-#include <QMetaObject>
-#include <QThread>
+#include <iostream>
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
@@ -117,21 +114,8 @@ SensorManager::~SensorManager() {
 #ifdef _WIN32
     cleanup_wmi();
     cleanup_pdh();
-
-    // Shut down LHM bridge thread
-    if (lhm_bridge_ && lhm_thread_) {
-        QMetaObject::invokeMethod(lhm_bridge_, "stop_polling",
-                                  Qt::BlockingQueuedConnection);
-        lhm_thread_->quit();
-        lhm_thread_->wait(5000);
-        delete lhm_bridge_;
-        lhm_bridge_ = nullptr;
-        delete lhm_thread_;
-        lhm_thread_ = nullptr;
-    } else {
-        delete lhm_bridge_;
-        lhm_bridge_ = nullptr;
-    }
+    delete lhm_bridge_;
+    lhm_bridge_ = nullptr;
 #endif
 
     // Unload NVML
@@ -178,10 +162,10 @@ bool SensorManager::initialize() {
     // Initialize PDH for dynamic CPU frequency
     init_pdh();
 
-    // Initialize LHM bridge on dedicated QThread
-    lhm_bridge_ = new LhmBridge();  // No parent - will be moved to thread
+    // Initialize LHM bridge for accurate sensor data
+    lhm_bridge_ = new LhmBridge(nullptr);
     if (lhm_bridge_->initialize()) {
-        fprintf(stderr, "[Sensor] LHM bridge active\n");
+        std::cout << "[Sensor] LHM bridge active" << std::endl;
     }
 #elif defined(__linux__)
     has_sysfs_ = init_sysfs();
@@ -204,18 +188,6 @@ bool SensorManager::initialize() {
 void SensorManager::start_polling(int interval_ms) {
     if (running_.load()) return;
     running_.store(true);
-
-#ifdef _WIN32
-    // Start LHM bridge on its own QThread (QProcess needs Qt event loop)
-    if (lhm_bridge_ && lhm_bridge_->is_available()) {
-        lhm_thread_ = new QThread();
-        lhm_bridge_->moveToThread(lhm_thread_);
-        QObject::connect(lhm_thread_, &QThread::started,
-                         lhm_bridge_, &LhmBridge::start_polling);
-        lhm_thread_->start();
-    }
-#endif
-
     poll_thread_ = std::thread(&SensorManager::poll_thread_func, this, interval_ms);
 }
 
@@ -224,16 +196,6 @@ void SensorManager::stop() {
     if (poll_thread_.joinable()) {
         poll_thread_.join();
     }
-
-#ifdef _WIN32
-    // Stop LHM thread if running
-    if (lhm_thread_ && lhm_thread_->isRunning()) {
-        QMetaObject::invokeMethod(lhm_bridge_, "stop_polling",
-                                  Qt::BlockingQueuedConnection);
-        lhm_thread_->quit();
-        lhm_thread_->wait(5000);
-    }
-#endif
 }
 
 std::vector<SensorReading> SensorManager::get_all_readings() const {
@@ -819,17 +781,17 @@ bool SensorManager::init_wmi() {
     try {
         hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     } catch (...) {
-        fprintf(stderr, "[Sensor] Warning: CoInitializeEx threw exception, trying fallback\n");
+        std::cerr << "[Sensor] Warning: CoInitializeEx threw exception, trying fallback" << std::endl;
         hr = E_FAIL;
     }
 
     if (hr == RPC_E_CHANGED_MODE) {
         // COM already initialized with a different threading model -
         // this is fine, we can still use it.
-        fprintf(stderr, "[Sensor] COM already initialized (apartment-threaded), continuing\n");
+        std::cerr << "[Sensor] COM already initialized (apartment-threaded), continuing" << std::endl;
     } else if (FAILED(hr)) {
-        fprintf(stderr, "[Sensor] Warning: COM initialization failed (0x%lx), falling back to basic system info\n",
-                 static_cast<unsigned long>(hr));
+        std::cerr << "[Sensor] Warning: COM initialization failed (0x"
+                  << std::hex << hr << std::dec << "), falling back to basic system info" << std::endl;
         collect_basic_system_info();
         return false;
     }
@@ -842,14 +804,14 @@ bool SensorManager::init_wmi() {
 
     // RPC_E_TOO_LATE is OK if already initialized
     if (FAILED(hr) && hr != RPC_E_TOO_LATE) {
-        fprintf(stderr, "[Sensor] Warning: CoInitializeSecurity failed (0x%lx), WMI may have limited access\n",
-                 static_cast<unsigned long>(hr));
+        std::cerr << "[Sensor] Warning: CoInitializeSecurity failed (0x"
+                  << std::hex << hr << std::dec << "), WMI may have limited access" << std::endl;
         // Don't return false - WMI might still work without explicit security setup
     }
 
     // Cache WMI locator and service connections
     if (!reconnect_wmi()) {
-        fprintf(stderr, "[Sensor] Warning: WMI connection failed, falling back to basic system info\n");
+        std::cerr << "[Sensor] Warning: WMI connection failed, falling back to basic system info" << std::endl;
         collect_basic_system_info();
         return false;
     }
@@ -879,8 +841,8 @@ void SensorManager::collect_basic_system_info() {
 void SensorManager::init_pdh() {
     PDH_STATUS status = PdhOpenQuery(nullptr, 0, &pdh_query_);
     if (status != ERROR_SUCCESS) {
-        fprintf(stderr, "[Sensor] PDH: failed to open query (0x%lx)\n",
-                 static_cast<unsigned long>(status));
+        std::cerr << "[Sensor] PDH: failed to open query (0x"
+                  << std::hex << status << std::dec << ")" << std::endl;
         pdh_query_ = nullptr;
         return;
     }
@@ -889,14 +851,14 @@ void SensorManager::init_pdh() {
         L"\\Processor Information(_Total)\\% of Maximum Frequency",
         0, &pdh_freq_counter_);
     if (status != ERROR_SUCCESS) {
-        fprintf(stderr, "[Sensor] PDH: failed to add frequency counter (0x%lx)\n",
-                 static_cast<unsigned long>(status));
+        std::cerr << "[Sensor] PDH: failed to add frequency counter (0x"
+                  << std::hex << status << std::dec << ")" << std::endl;
         pdh_freq_counter_ = nullptr;
     }
 
     // Initial data collection (PDH requires two samples)
     PdhCollectQueryData(pdh_query_);
-    fprintf(stderr, "[Sensor] PDH dynamic frequency monitoring initialized\n");
+    std::cout << "[Sensor] PDH dynamic frequency monitoring initialized" << std::endl;
 }
 
 void SensorManager::cleanup_pdh() {
@@ -931,11 +893,12 @@ void SensorManager::poll_wmi() {
                h == RPC_E_SERVER_DIED_DNE;
     };
 
-    // --- Try LHM bridge first (most accurate, data comes from dedicated QThread) ---
+    // --- Try LHM bridge first (most accurate) ---
     bool have_lhm_data = false;
     if (lhm_bridge_ && lhm_bridge_->is_available()) {
         std::vector<SensorReading> lhm_readings;
-        if (lhm_bridge_->get_cached_readings(lhm_readings)) {
+        lhm_bridge_->poll(lhm_readings);
+        if (!lhm_readings.empty()) {
             for (const auto& r : lhm_readings) {
                 update_reading(r.name, r.category, r.value, r.unit);
             }
@@ -944,8 +907,6 @@ void SensorManager::poll_wmi() {
     }
 
     if (!have_lhm_data) {
-        // Early exit check for fast shutdown
-        if (!running_.load()) return;
         // --- Query ROOT\WMI for thermal zones (cached connection) ---
         int zone_idx = 0;
         if (wmi_svc_root_wmi_) {
@@ -959,7 +920,7 @@ void SensorManager::poll_wmi() {
 
             if (is_connection_error(hr)) {
                 // Connection lost - try to reconnect on next poll
-                fprintf(stderr, "[Sensor] WMI ROOT\\WMI connection lost, will reconnect\n");
+                std::cerr << "[Sensor] WMI ROOT\\WMI connection lost, will reconnect" << std::endl;
                 cleanup_wmi();
                 collect_basic_system_info();
                 return;
@@ -968,14 +929,12 @@ void SensorManager::poll_wmi() {
             if (SUCCEEDED(hr) && enumerator) {
                 IWbemClassObject* obj = nullptr;
                 ULONG returned = 0;
-                double first_zone_temp = -999.0;
 
                 while (enumerator->Next(kWmiTimeoutMs, 1, &obj, &returned) == S_OK) {
                     VARIANT vt;
                     hr = obj->Get(L"CurrentTemperature", 0, &vt, nullptr, nullptr);
                     if (SUCCEEDED(hr)) {
                         double temp_c = (vt.intVal / WMI_TEMP_TENTHS_TO_DEGREES) - KELVIN_TO_CELSIUS_OFFSET;
-                        if (zone_idx == 0) first_zone_temp = temp_c;
                         update_reading("ACPI Zone " + std::to_string(zone_idx),
                                        "CPU", temp_c, "C");
                         VariantClear(&vt);
@@ -984,25 +943,8 @@ void SensorManager::poll_wmi() {
                     zone_idx++;
                 }
                 enumerator->Release();
-
-                // Stale data detection: if the same temperature is reported
-                // for WMI_STALE_THRESHOLD consecutive cycles, reconnect WMI
-                if (first_zone_temp > -900.0) {
-                    if (std::abs(first_zone_temp - prev_wmi_temp_) < 0.01) {
-                        wmi_temp_same_count_++;
-                        if (wmi_temp_same_count_ >= WMI_STALE_THRESHOLD) {
-                            fprintf(stderr, "[Sensor] WMI temperature stale for %d cycles, reconnecting...\n",
-                                    wmi_temp_same_count_);
-                            reconnect_wmi();
-                            wmi_temp_same_count_ = 0;
-                        }
-                    } else {
-                        wmi_temp_same_count_ = 0;
-                    }
-                    prev_wmi_temp_ = first_zone_temp;
-                }
             } else if (hr == WBEM_E_ACCESS_DENIED) {
-                fprintf(stderr, "[Sensor] Warning: WMI thermal query access denied\n");
+                std::cerr << "[Sensor] Warning: WMI thermal query access denied" << std::endl;
             }
         }
 
@@ -1010,7 +952,7 @@ void SensorManager::poll_wmi() {
         if (zone_idx == 0) {
             static bool thermal_fallback_logged = false;
             if (!thermal_fallback_logged) {
-                fprintf(stderr, "[Sensor] MSAcpi_ThermalZoneTemperature returned 0 zones, trying fallback\n");
+                std::cerr << "[Sensor] MSAcpi_ThermalZoneTemperature returned 0 zones, trying fallback" << std::endl;
                 thermal_fallback_logged = true;
             }
 
@@ -1046,7 +988,7 @@ void SensorManager::poll_wmi() {
                     if (tz_idx == 0) {
                         static bool perf_thermal_logged = false;
                         if (!perf_thermal_logged) {
-                            fprintf(stderr, "[Sensor] Win32_PerfFormattedData_Counters_ThermalZoneInformation also returned 0 zones\n");
+                            std::cerr << "[Sensor] Win32_PerfFormattedData_Counters_ThermalZoneInformation also returned 0 zones" << std::endl;
                             perf_thermal_logged = true;
                         }
                     }
@@ -1054,7 +996,6 @@ void SensorManager::poll_wmi() {
             }
         }
 
-        if (!running_.load()) return;
         // --- Query ROOT\CIMV2 for fans, CPU info, battery (cached connection) ---
         if (wmi_svc_cimv2_) {
             auto* cimv2 = static_cast<IWbemServices*>(wmi_svc_cimv2_);
@@ -1069,7 +1010,7 @@ void SensorManager::poll_wmi() {
                     nullptr, &enumerator);
 
                 if (is_connection_error(hr)) {
-                    fprintf(stderr, "[Sensor] WMI CIMV2 connection lost, will reconnect\n");
+                    std::cerr << "[Sensor] WMI CIMV2 connection lost, will reconnect" << std::endl;
                     cleanup_wmi();
                     collect_basic_system_info();
                     return;
@@ -1097,7 +1038,7 @@ void SensorManager::poll_wmi() {
                     if (fan_idx == 0) {
                         static bool fan_empty_logged = false;
                         if (!fan_empty_logged) {
-                            fprintf(stderr, "[Sensor] Win32_Fan returned 0 fans\n");
+                            std::cerr << "[Sensor] Win32_Fan returned 0 fans" << std::endl;
                             fan_empty_logged = true;
                         }
                     }
@@ -1156,7 +1097,7 @@ void SensorManager::poll_wmi() {
                     if (!got_data) {
                         static bool cpu_empty_logged = false;
                         if (!cpu_empty_logged) {
-                            fprintf(stderr, "[Sensor] Win32_Processor returned no data\n");
+                            std::cerr << "[Sensor] Win32_Processor returned no data" << std::endl;
                             cpu_empty_logged = true;
                         }
                     }
@@ -1190,7 +1131,6 @@ void SensorManager::poll_wmi() {
         }
     } // end if (!have_lhm_data)
 
-    if (!running_.load()) return;
     // --- A) CPU usage via GetSystemTimes() (always collected) ---
     double cpu_pct = 0.0;
     {
@@ -1380,7 +1320,7 @@ bool SensorManager::init_adl() {
         adl_handle_ = LoadLibraryA("atiadlxy.dll"); // 32-bit fallback
     }
     if (!adl_handle_) {
-        fprintf(stderr, "[Sensor] ADL: could not load atiadlxx.dll or atiadlxy.dll\n");
+        std::cerr << "[Sensor] ADL: could not load atiadlxx.dll or atiadlxy.dll" << std::endl;
         return false;
     }
 
@@ -1405,15 +1345,16 @@ bool SensorManager::init_adl() {
         adl_temp_ = reinterpret_cast<ADL2_OVERDRIVE_TEMPERATURE_GET>(
             GetProcAddress(static_cast<HMODULE>(adl_handle_), temp_func_names[i]));
         if (adl_temp_) {
-            fprintf(stderr, "[Sensor] ADL: resolved temperature function: %s\n", temp_func_names[i]);
+            std::cerr << "[Sensor] ADL: resolved temperature function: "
+                      << temp_func_names[i] << std::endl;
             break;
         } else {
-            fprintf(stderr, "[Sensor] ADL: %s not found\n", temp_func_names[i]);
+            std::cerr << "[Sensor] ADL: " << temp_func_names[i] << " not found" << std::endl;
         }
     }
 
     if (!adl_create_ || !adl_num_adapters_) {
-        fprintf(stderr, "[Sensor] ADL: critical functions not found in DLL\n");
+        std::cerr << "[Sensor] ADL: critical functions not found in DLL" << std::endl;
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
         adl_handle_ = nullptr;
         return false;
@@ -1427,7 +1368,8 @@ bool SensorManager::init_adl() {
         static_cast<AdlMallocCallback>(adl_malloc_callback));
     int adl_status = adl_create_(malloc_cb, 1, &adl_context_);
     if (adl_status != 0) { // ADL_OK == 0
-        fprintf(stderr, "[Sensor] ADL: ADL2_Main_Control_Create failed with code %d\n", adl_status);
+        std::cerr << "[Sensor] ADL: ADL2_Main_Control_Create failed with code "
+                  << adl_status << std::endl;
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
         adl_handle_ = nullptr;
         adl_create_ = nullptr;
@@ -1437,7 +1379,7 @@ bool SensorManager::init_adl() {
     // Get adapter count
     adl_adapter_count_ = 0;
     if (adl_num_adapters_(adl_context_, &adl_adapter_count_) != 0 || adl_adapter_count_ <= 0) {
-        fprintf(stderr, "[Sensor] ADL: no adapters found\n");
+        std::cerr << "[Sensor] ADL: no adapters found" << std::endl;
         if (adl_destroy_) adl_destroy_(adl_context_);
         adl_context_ = nullptr;
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
@@ -1445,18 +1387,19 @@ bool SensorManager::init_adl() {
         return false;
     }
 
-    fprintf(stderr, "[Sensor] ADL initialized successfully, %d adapter(s) found\n", adl_adapter_count_);
+    std::cerr << "[Sensor] ADL initialized successfully, " << adl_adapter_count_
+              << " adapter(s) found" << std::endl;
     return true;
 
 #elif defined(__linux__)
     adl_handle_ = dlopen("libatiadlxx.so", RTLD_NOW);
     if (!adl_handle_) {
-        fprintf(stderr, "[Sensor] ADL: could not load libatiadlxx.so\n");
+        std::cerr << "[Sensor] ADL: could not load libatiadlxx.so" << std::endl;
         return false;
     }
     // On Linux, AMD GPU temperature is typically available through sysfs/hwmon
     // (amdgpu driver). ADL on Linux is uncommon, so we just note its presence.
-    fprintf(stderr, "[Sensor] ADL: loaded on Linux, but sysfs hwmon is preferred for AMD GPU\n");
+    std::cerr << "[Sensor] ADL: loaded on Linux, but sysfs hwmon is preferred for AMD GPU" << std::endl;
     return false; // Don't activate ADL polling on Linux; sysfs handles it
 
 #else
@@ -1468,7 +1411,7 @@ void SensorManager::poll_adl() {
 #if defined(_WIN32)
     if (!adl_context_ || !adl_active_) {
         if (!adl_stub_logged_) {
-            fprintf(stderr, "[Sensor] ADL poll skipped - context or functions unavailable\n");
+            std::cerr << "[Sensor] ADL poll skipped - context or functions unavailable" << std::endl;
             adl_stub_logged_ = true;
         }
         return;
@@ -1504,7 +1447,7 @@ void SensorManager::poll_adl() {
 #else
     // On non-Windows platforms, ADL polling is not active.
     if (!adl_stub_logged_) {
-        fprintf(stderr, "[Sensor] ADL poll skipped - not supported on this platform\n");
+        std::cerr << "[Sensor] ADL poll skipped - not supported on this platform" << std::endl;
         adl_stub_logged_ = true;
     }
     (void)adl_handle_;

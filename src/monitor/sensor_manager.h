@@ -10,8 +10,6 @@
 
 #include <QVector>
 
-class QThread;
-
 #ifdef _WIN32
     #ifndef NOMINMAX
         #define NOMINMAX
@@ -145,15 +143,8 @@ private:
     double      max_clock_speed_ = 0.0;   // MHz from Win32_Processor
     std::string cpu_brand_;                // CPU brand string
 
-    // LHM bridge for accurate hardware monitoring (runs on dedicated QThread)
+    // LHM bridge for accurate hardware monitoring
     LhmBridge*  lhm_bridge_ = nullptr;
-    QThread*    lhm_thread_ = nullptr;
-
-    // WMI stale data detection
-    double prev_wmi_temp_ = -999.0;
-    int wmi_temp_same_count_ = 0;
-    static constexpr int WMI_STALE_THRESHOLD = 20;  // 10s (500ms x 20) same value = stale
-    int poll_count_ = 0;
 
     // ADL2 function pointer types
     typedef int (*ADL2_MAIN_CONTROL_CREATE)(int (*)(int), int, void**);
