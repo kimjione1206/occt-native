@@ -320,7 +320,9 @@ jobs:
         $v = Read-UIValue "Power"
         Assert-Value "Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
         $v = Read-UIValue "Temperature"
+        # CI runners lack temp sensors, so N/A is expected. Just verify label exists.
         Assert-Value "Temperature" $v { $v -ne "NOT_FOUND" }
+        if ($v -eq "N/A") { Write-Host "  (N/A expected: CI runner has no temperature sensor)" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "05_cpu_running_13s"
@@ -411,8 +413,11 @@ jobs:
 
         # -- Benchmark value assertions (label-name based) --
         Write-Host "  -- Benchmark UI Value Checks --"
-        $v = Read-UIValue "L1 Cache"
-        Assert-Value "Bench L1 Cache" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        # Benchmark labels: "L1" value is after the "L1" label (under "Cache Latency" section)
+        $v = Read-UIValue "L1"
+        Assert-Value "Bench L1 Latency" $v { $v -ne "NOT_FOUND" -and $v -ne "--" }
+        $v = Read-UIValue "Read Bandwidth"
+        Assert-Value "Bench Read BW" $v { $v -ne "NOT_FOUND" -and $v -ne "--" }
 
         Start-Sleep -Seconds 15
         Take-Screenshot "25_benchmark_done"
