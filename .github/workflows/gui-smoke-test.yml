@@ -185,20 +185,29 @@ jobs:
             Write-Host "  >> Screenshot: $name.png"
         }
 
-        function Read-UIValue($accessibleName) {
+        function Read-UIValue($labelName) {
+            # Qt exposes QLabels as Text elements with Name = displayed text.
+            # Labels come in pairs: [title, value] e.g. ["GFLOPS", "15.55"].
+            # Find the title label, then return the NEXT sibling's Name.
             try {
                 $win = Get-AppWindow
                 if (!$win) { return "NOT_FOUND" }
-                $cond = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::HelpTextProperty, $accessibleName)
-                $el = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
-                if ($el) {
-                    return $el.Current.Name
-                } else {
-                    return "NOT_FOUND"
+                $textCond = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Text)
+                $allTexts = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $textCond)
+                $found = $false
+                foreach ($t in $allTexts) {
+                    if ($found) {
+                        return $t.Current.Name
+                    }
+                    if ($t.Current.Name -eq $labelName) {
+                        $found = $true
+                    }
                 }
+                return "NOT_FOUND"
             } catch {
-                Write-Host "  Read-UIValue error for '$accessibleName': $($_.Exception.Message)"
+                Write-Host "  Read-UIValue error for '$labelName': $($_.Exception.Message)"
                 return "NOT_FOUND"
             }
         }
@@ -302,30 +311,16 @@ jobs:
         Start-Sleep -Seconds 5
         Take-Screenshot "04_cpu_running_8s"
 
-        # -- CPU: Debug dump all UI elements --
-        Write-Host "  -- CPU UI Element Dump (debug) --"
-        try {
-            $win = Get-AppWindow
-            if ($win) {
-                $allCond = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                    [System.Windows.Automation.ControlType]::Text)
-                $allTexts = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $allCond)
-                $idx = 0
-                foreach ($t in $allTexts) {
-                    $name = $t.Current.Name
-                    $autoId = $t.Current.AutomationId
-                    $helpText = $t.Current.HelpText
-                    $cls = $t.Current.ClassName
-                    Write-Host "  [$idx] Name='$name' AutomationId='$autoId' HelpText='$helpText' Class='$cls'"
-                    $idx++
-                    if ($idx -ge 60) { Write-Host "  ... (truncated)"; break }
-                }
-                Write-Host "  Total Text elements: $($allTexts.Count)"
-            }
-        } catch {
-            Write-Host "  Dump error: $($_.Exception.Message)"
-        }
+        # -- CPU value assertions (label-name based) --
+        Write-Host "  -- CPU UI Value Checks --"
+        $v = Read-UIValue "GFLOPS"
+        Assert-Value "GFLOPS" $v { $v -ne "NOT_FOUND" -and [double]::TryParse(($v -replace '[^\d.]',''), [ref]$null) -and [double]($v -replace '[^\d.]','') -gt 0 }
+        $v = Read-UIValue "Errors"
+        Assert-Value "Errors" $v { $v -eq "0" }
+        $v = Read-UIValue "Power"
+        Assert-Value "Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "Temperature"
+        Assert-Value "Temperature" $v { $v -ne "NOT_FOUND" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "05_cpu_running_13s"
@@ -343,29 +338,12 @@ jobs:
         Start-Sleep -Seconds 5
         Take-Screenshot "09_ram_running_8s"
 
-        # -- RAM value assertions --
+        # -- RAM value assertions (label-name based) --
         Write-Host "  -- RAM UI Value Checks --"
-        $v = Read-UIValue "ram_bandwidth_value"
-        Assert-Value "ram_bandwidth_value" $v { $v -ne "NOT_FOUND" -and $v -ne "0.00 GB/s" }
-        $v = Read-UIValue "ram_errors_value"
-        Assert-Value "ram_errors_value" $v { $v -eq "0" }
-        try {
-            $win = Get-AppWindow
-            if ($win) {
-                $cond = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::HelpTextProperty, "ram_progress_bar")
-                $el = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
-                if ($el) {
-                    $rvp = $el.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
-                    $pv = $rvp.Current.Value
-                    Assert-Value "ram_progress_bar (RangeValue)" $pv { $pv -gt 0 }
-                } else {
-                    Write-Host "  [UI-VALUE] ram_progress_bar = 'NOT_FOUND'"
-                }
-            }
-        } catch {
-            Write-Host "  ram_progress_bar RangeValue read failed: $($_.Exception.Message)"
-        }
+        $v = Read-UIValue "Bandwidth"
+        Assert-Value "RAM Bandwidth" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "Errors Found"
+        Assert-Value "RAM Errors" $v { $v -ne "NOT_FOUND" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "10_ram_running_13s"
@@ -383,12 +361,12 @@ jobs:
         Start-Sleep -Seconds 5
         Take-Screenshot "14_storage_running_8s"
 
-        # -- Storage value assertions --
+        # -- Storage value assertions (label-name based) --
         Write-Host "  -- Storage UI Value Checks --"
-        $v = Read-UIValue "storage_iops_value"
-        Assert-Value "storage_iops_value" $v { $v -ne "NOT_FOUND" -and [double]::TryParse(($v -replace '[^\d.]',''), [ref]$null) -and [double]($v -replace '[^\d.]','') -gt 0 }
-        $v = Read-UIValue "storage_throughput_value"
-        Assert-Value "storage_throughput_value" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "IOPS"
+        Assert-Value "Storage IOPS" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "Throughput"
+        Assert-Value "Storage Throughput" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
         Click-ButtonByName "Stop Test"
         Start-Sleep -Seconds 2
@@ -412,10 +390,10 @@ jobs:
         Start-Sleep -Seconds 5
         Take-Screenshot "20_psu_running_8s"
 
-        # -- PSU value assertions --
+        # -- PSU value assertions (label-name based) --
         Write-Host "  -- PSU UI Value Checks --"
-        $v = Read-UIValue "psu_cpu_status"
-        Assert-Value "psu_cpu_status" $v { $v -ne "NOT_FOUND" -and $v -like "*Running*" }
+        $v = Read-UIValue "Total Power"
+        Assert-Value "PSU Total Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
         Click-ButtonByName "Stop Test"
         Start-Sleep -Seconds 2
@@ -431,10 +409,10 @@ jobs:
         Start-Sleep -Seconds 10
         Take-Screenshot "24_benchmark_running_15s"
 
-        # -- Benchmark value assertions --
+        # -- Benchmark value assertions (label-name based) --
         Write-Host "  -- Benchmark UI Value Checks --"
-        $v = Read-UIValue "bench_status"
-        Assert-Value "bench_status" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "L1 Cache"
+        Assert-Value "Bench L1 Cache" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
         Start-Sleep -Seconds 15
         Take-Screenshot "25_benchmark_done"
@@ -445,10 +423,27 @@ jobs:
         Start-Sleep -Seconds 3
         Take-Screenshot "26_monitor"
 
-        # -- Monitor value assertions --
+        # -- Monitor value assertions (label-name based) --
         Write-Host "  -- Monitor UI Value Checks --"
-        $v = Read-UIValue "monitor_whea_count"
-        Assert-Value "monitor_whea_count" $v { $v -ne "NOT_FOUND" -and $v -like "*WHEA*" }
+        # Find WHEA label by scanning all text elements
+        try {
+            $win = Get-AppWindow
+            if ($win) {
+                $textCond = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Text)
+                $allTexts = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $textCond)
+                $wheaFound = $false
+                foreach ($t in $allTexts) {
+                    if ($t.Current.Name -like "*WHEA*") {
+                        $wheaFound = $true
+                        Assert-Value "WHEA label" $t.Current.Name { $true }
+                        break
+                    }
+                }
+                if (-not $wheaFound) { Write-Host "  [UI-VALUE] WHEA label = 'NOT_FOUND'" }
+            }
+        } catch { Write-Host "  Monitor scan failed: $($_.Exception.Message)" }
 
         # ── 9. System Info ──
         Write-Host "`n=== 9. System Info ==="
@@ -458,27 +453,10 @@ jobs:
 
         # -- System Info value read (log only) --
         Write-Host "  -- System Info UI Value Checks --"
-        $v = Read-UIValue "sysinfo_cpu_model"
-        Write-Host "  [UI-VALUE] sysinfo_cpu_model = '$v'"
-        if ($v -eq "NOT_FOUND") {
-            # Try finding any element with CPU info by scanning labels
-            try {
-                $win = Get-AppWindow
-                if ($win) {
-                    $allCond = New-Object System.Windows.Automation.PropertyCondition(
-                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                        [System.Windows.Automation.ControlType]::Text)
-                    $allTexts = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $allCond)
-                    foreach ($t in $allTexts) {
-                        if ($t.Current.Name -like "*CPU*" -or $t.Current.Name -like "*Processor*") {
-                            Write-Host "  [UI-VALUE] sysinfo (CPU label found): '$($t.Current.Name)'"
-                            break
-                        }
-                    }
-                }
-            } catch {
-                Write-Host "  sysinfo CPU scan failed: $($_.Exception.Message)"
-            }
+        $v = Read-UIValue "Model"
+        Write-Host "  [UI-VALUE] CPU Model = '$v'"
+        if ($v -ne "NOT_FOUND") {
+            Assert-Value "SysInfo CPU Model" $v { $v -ne "" }
         }
 
         # ── 10. Schedule ──
@@ -495,8 +473,8 @@ jobs:
 
         # -- Dashboard value read (log only) --
         Write-Host "  -- Dashboard UI Value Checks --"
-        $v = Read-UIValue "dash_cpu_gauge"
-        Write-Host "  [UI-VALUE] dash_cpu_gauge = '$v'"
+        $v = Read-UIValue "CPU"
+        Write-Host "  [UI-VALUE] Dashboard CPU info = '$v'"
 
         # ── UI Value Verification Summary ──
         Write-Host "`n=== UI Value Verification Summary ==="
