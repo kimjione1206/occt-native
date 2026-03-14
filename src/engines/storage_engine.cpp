@@ -80,7 +80,10 @@ bool StorageEngine::start(StorageMode mode, const std::string& path,
     std::lock_guard<std::mutex> guard(start_stop_mutex_);
 
     if (running_.load()) {
-        last_error_ = "Storage test already running";
+        {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            last_error_ = "Storage test already running";
+        }
         return false;
     }
 
@@ -100,8 +103,14 @@ bool StorageEngine::start(StorageMode mode, const std::string& path,
     stop_requested_.store(false);
     running_.store(true);
     duration_secs_.store(duration_secs);
-    last_error_.clear();
+    {
+        std::lock_guard<std::mutex> lk(metrics_mutex_);
+        last_error_.clear();
+    }
 
+    if (worker_.joinable()) {
+        worker_.join();
+    }
     worker_ = std::thread(&StorageEngine::run, this, mode, dir,
                           file_size_bytes, queue_depth);
     return true;
@@ -117,9 +126,13 @@ void StorageEngine::stop() {
     running_.store(false);
 
     // Delete test file in background to avoid blocking UI
-    if (!test_file_path_.empty()) {
-        std::string path_copy = test_file_path_;
+    std::string path_copy;
+    {
+        std::lock_guard<std::mutex> lk(metrics_mutex_);
+        path_copy = test_file_path_;
         test_file_path_.clear();
+    }
+    if (!path_copy.empty()) {
         std::thread([path_copy]() {
 #if defined(_WIN32)
             DeleteFileA(path_copy.c_str());
@@ -269,11 +282,15 @@ void StorageEngine::free_aligned(uint8_t* ptr) {
 
 void StorageEngine::run(StorageMode mode, const std::string& path,
                         uint64_t file_size_bytes, int queue_depth) {
+    try {
     // Build test file path
     std::string dir = path;
     if (dir.empty()) dir = ".";
     if (dir.back() != '/' && dir.back() != '\\') dir += '/';
-    test_file_path_ = dir + "occt_storage_test.bin";
+    {
+        std::lock_guard<std::mutex> lk(metrics_mutex_);
+        test_file_path_ = dir + "occt_storage_test.bin";
+    }
 
     // Allocate I/O buffer (1 MB for sequential, configured block size for random)
     size_t buf_size = BLOCK_SIZE_1M;
@@ -367,9 +384,9 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
         bool ro = (mode == StorageMode::SEQ_READ || mode == StorageMode::RAND_READ);
         intptr_t fd = open_direct(test_file_path_, ro);
         if (fd < 0) {
-            last_error_ = "Failed to open test file: " + test_file_path_;
             {
                 std::lock_guard<std::mutex> lock(metrics_mutex_);
+                last_error_ = "Failed to open test file: " + test_file_path_;
                 metrics_.state = "error";
                 metrics_.error_count++;
             }
@@ -414,6 +431,21 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
     }
 
     running_.store(false);
+    } catch (const std::exception& e) {
+        {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            last_error_ = std::string("Exception: ") + e.what();
+            metrics_.state = "error";
+        }
+        running_.store(false);
+    } catch (...) {
+        {
+            std::lock_guard<std::mutex> lk(metrics_mutex_);
+            last_error_ = "Unknown exception in storage worker";
+            metrics_.state = "error";
+        }
+        running_.store(false);
+    }
 }
 
 // ─── Sequential Write ────────────────────────────────────────────────────────

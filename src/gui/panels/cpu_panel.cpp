@@ -428,9 +428,12 @@ void CpuPanel::updateMonitoring()
     double cpuTemp = m.temperature;
     double cpuPower = m.power_watts;
 
+    bool powerEstimated = m.power_estimated;
     if (sensorMgr_) {
         if (cpuTemp <= 0) cpuTemp = sensorMgr_->get_cpu_temperature();
         if (cpuPower <= 0) cpuPower = sensorMgr_->get_cpu_power();
+        if (cpuPower > 0 && m.power_watts <= 0)
+            powerEstimated = sensorMgr_->is_cpu_power_estimated();
     }
 
     if (cpuTemp > 0)
@@ -438,10 +441,14 @@ void CpuPanel::updateMonitoring()
     else
         tempLabel_->setText("N/A");
 
-    if (cpuPower > 0)
-        powerLabel_->setText(QString::number(cpuPower, 'f', 1) + " W");
-    else
+    if (cpuPower > 0) {
+        QString powerText = QString::number(cpuPower, 'f', 1) + " W";
+        if (powerEstimated)
+            powerText += " (est.)";
+        powerLabel_->setText(powerText);
+    } else {
         powerLabel_->setText("N/A");
+    }
 
     // Update CPU frequency from SensorManager if available
     bool freqUpdated = false;

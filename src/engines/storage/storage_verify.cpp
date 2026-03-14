@@ -283,9 +283,9 @@ void StorageEngine::verify_seq(const std::string& path, uint64_t file_size, int 
     // ── Phase 1: Write ──────────────────────────────────────────────────────
     intptr_t fd = open_direct(path, false);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -336,9 +336,9 @@ void StorageEngine::verify_seq(const std::string& path, uint64_t file_size, int 
 
     fd = open_direct(path, true);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -415,9 +415,9 @@ void StorageEngine::verify_rand(const std::string& path, uint64_t file_size, int
     // ── Phase 1: Write in shuffled order ────────────────────────────────────
     intptr_t fd = open_direct(path, false);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -469,9 +469,9 @@ void StorageEngine::verify_rand(const std::string& path, uint64_t file_size, int
     // ── Phase 2: Read+verify in same shuffled order ─────────────────────────
     fd = open_direct(path, true);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -543,9 +543,9 @@ void StorageEngine::fill_verify(const std::string& path, uint64_t file_size, int
     // ── Phase 1: Sequential fill with cycling patterns ──────────────────────
     intptr_t fd = open_direct(path, false);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -597,9 +597,9 @@ void StorageEngine::fill_verify(const std::string& path, uint64_t file_size, int
     // ── Phase 2: Sequential verify all ──────────────────────────────────────
     fd = open_direct(path, true);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -669,9 +669,9 @@ void StorageEngine::butterfly_verify(const std::string& path, uint64_t file_size
     // ── Phase 1: Converging write — low goes up, high goes down ─────────────
     intptr_t fd = open_direct(path, false);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
@@ -756,9 +756,9 @@ void StorageEngine::butterfly_verify(const std::string& path, uint64_t file_size
     // ── Phase 2: Sequential verify ──────────────────────────────────────────
     fd = open_direct(path, true);
     if (fd < 0) {
-        last_error_ = "Failed to open test file: " + test_file_path_;
         {
             std::lock_guard<std::mutex> lock(metrics_mutex_);
+            last_error_ = "Failed to open test file: " + test_file_path_;
             metrics_.state = "error";
             metrics_.error_count++;
         }
