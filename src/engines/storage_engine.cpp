@@ -163,7 +163,7 @@ void StorageEngine::stop() {
         log("[Storage] Stopped. File cleanup: " + path_copy);
         std::thread([path_copy]() {
 #if defined(_WIN32)
-            DeleteFileA(path_copy.c_str());
+            DeleteFileW(utf8_to_wide(path_copy).c_str());
 #else
             unlink(path_copy.c_str());
 #endif
@@ -187,47 +187,52 @@ void StorageEngine::set_metrics_callback(MetricsCallback cb) {
 
 // ─── Platform-specific helpers ───────────────────────────────────────────────
 
+#if defined(_WIN32)
+// Convert UTF-8 std::string to std::wstring for Windows Unicode APIs
+static std::wstring utf8_to_wide(const std::string& s) {
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return {};
+    std::wstring ws(wlen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], wlen);
+    return ws;
+}
+#endif
+
 intptr_t StorageEngine::open_direct(const std::string& path, bool read_only) {
 #if defined(_WIN32)
+    std::wstring wpath = utf8_to_wide(path);
+
     DWORD access = read_only ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE);
     DWORD creation = read_only ? OPEN_EXISTING : CREATE_ALWAYS;
 
     if (!force_direct_io_) {
-        // Buffered mode requested — skip direct I/O flags entirely
-        HANDLE h = CreateFileA(path.c_str(), access, 0, nullptr,
+        HANDLE h = CreateFileW(wpath.c_str(), access, 0, nullptr,
                                creation, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE) return -1;
-        std::cerr << "[Storage] Active mode: buffered I/O (direct I/O disabled)" << std::endl;
+        log("[Storage] Active mode: buffered I/O (direct I/O disabled)");
         return reinterpret_cast<intptr_t>(h);
     }
 
     DWORD flags = FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
 
-    HANDLE h = CreateFileA(path.c_str(), access, 0, nullptr,
+    HANDLE h = CreateFileW(wpath.c_str(), access, 0, nullptr,
                            creation, flags, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         DWORD err = GetLastError();
-        // Direct I/O may fail on USB drives or network shares.
-        // Retry without FILE_FLAG_NO_BUFFERING for compatibility.
-        std::cerr << "[Storage] Warning: Direct I/O failed (error " << err
-                  << "), retrying with buffered I/O. "
-                  << "USB drives may not support unbuffered access." << std::endl;
-        flags = FILE_FLAG_WRITE_THROUGH; // Keep write-through but drop no-buffering
-        h = CreateFileA(path.c_str(), access, 0, nullptr,
+        log("[Storage] Direct I/O failed (error " + std::to_string(err) + "), retrying buffered");
+        flags = FILE_FLAG_WRITE_THROUGH;
+        h = CreateFileW(wpath.c_str(), access, 0, nullptr,
                         creation, flags, nullptr);
         if (h == INVALID_HANDLE_VALUE) {
-            // Last resort: try fully buffered mode
-            std::cerr << "[Storage] Warning: Write-through also failed, "
-                      << "using fully buffered mode" << std::endl;
-            h = CreateFileA(path.c_str(), access, 0, nullptr,
+            h = CreateFileW(wpath.c_str(), access, 0, nullptr,
                             creation, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (h == INVALID_HANDLE_VALUE) return -1;
-            std::cerr << "[Storage] Active mode: fully buffered I/O" << std::endl;
+            log("[Storage] Active mode: fully buffered I/O");
         } else {
-            std::cerr << "[Storage] Active mode: buffered I/O with write-through" << std::endl;
+            log("[Storage] Active mode: buffered I/O with write-through");
         }
     } else {
-        std::cerr << "[Storage] Active mode: direct I/O (unbuffered)" << std::endl;
+        log("[Storage] Active mode: direct I/O (unbuffered)");
     }
     return reinterpret_cast<intptr_t>(h);
 #else
@@ -1224,7 +1229,7 @@ StorageBenchmarkResult StorageEngine::run_benchmark(const std::string& path,
                 last_error_ = "Failed to write full benchmark file";
             }
 #if defined(_WIN32)
-            DeleteFileA(test_file.c_str());
+            DeleteFileW(utf8_to_wide(test_file).c_str());
 #else
             unlink(test_file.c_str());
 #endif
@@ -1301,7 +1306,7 @@ StorageBenchmarkResult StorageEngine::run_benchmark(const std::string& path,
 cleanup:
     // Cleanup test file
 #if defined(_WIN32)
-    DeleteFileA(test_file.c_str());
+    DeleteFileW(utf8_to_wide(test_file).c_str());
 #else
     unlink(test_file.c_str());
 #endif
