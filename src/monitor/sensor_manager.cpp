@@ -182,7 +182,8 @@ bool SensorManager::initialize() {
     // Initialize LHM bridge on dedicated QThread
     lhm_bridge_ = new LhmBridge();  // No parent - will be moved to thread
     if (lhm_bridge_->initialize()) {
-        qDebug("[Sensor] LHM bridge active");
+        fprintf(stderr, "[Sensor] LHM bridge active
+");
     }
 #elif defined(__linux__)
     has_sysfs_ = init_sysfs();
@@ -307,12 +308,12 @@ void SensorManager::poll_thread_func(int interval_ms) {
         if (has_nvml_) poll_nvml();
         if (has_adl_) poll_adl();
 
-        // Periodic summary log every 100 polls
-        static int poll_count = 0;
-        if (++poll_count % 100 == 0) {
+        // Periodic summary (every 100 polls)
+        poll_count_++;
+        if (poll_count_ % 100 == 0) {
             std::lock_guard<std::mutex> lk(readings_mutex_);
-            qDebug("[Sensor] Poll #%d completed, %zu readings active",
-                   poll_count, readings_.size());
+            fprintf(stderr, "[Sensor] Poll #%d completed, %zu readings active\n",
+                    poll_count_, readings_.size());
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
@@ -338,9 +339,9 @@ void SensorManager::update_reading(const std::string& sensor_name,
             else significant_change = delta >= 0.1;
 
             if (significant_change && r.value != 0.0) {
-                qDebug("[Sensor] %s/%s: %.1f -> %.1f %s",
-                       category.c_str(), sensor_name.c_str(),
-                       r.value, value, unit.c_str());
+                fprintf(stderr, "[Sensor] %s/%s: %.1f -> %.1f %s\n",
+                        category.c_str(), sensor_name.c_str(),
+                        r.value, value, unit.c_str());
             }
 
             r.value = value;
@@ -843,16 +844,19 @@ bool SensorManager::init_wmi() {
     try {
         hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     } catch (...) {
-        qWarning("[Sensor] Warning: CoInitializeEx threw exception, trying fallback");
+        fprintf(stderr, "[Sensor] Warning: CoInitializeEx threw exception, trying fallback
+");
         hr = E_FAIL;
     }
 
     if (hr == RPC_E_CHANGED_MODE) {
         // COM already initialized with a different threading model -
         // this is fine, we can still use it.
-        qDebug("[Sensor] COM already initialized (apartment-threaded), continuing");
+        fprintf(stderr, "[Sensor] COM already initialized (apartment-threaded), continuing
+");
     } else if (FAILED(hr)) {
-        qWarning("[Sensor] Warning: COM initialization failed (0x%lx), falling back to basic system info",
+        fprintf(stderr, "[Sensor] Warning: COM initialization failed (0x%lx), falling back to basic system info
+",
                  static_cast<unsigned long>(hr));
         collect_basic_system_info();
         return false;
@@ -866,14 +870,16 @@ bool SensorManager::init_wmi() {
 
     // RPC_E_TOO_LATE is OK if already initialized
     if (FAILED(hr) && hr != RPC_E_TOO_LATE) {
-        qWarning("[Sensor] Warning: CoInitializeSecurity failed (0x%lx), WMI may have limited access",
+        fprintf(stderr, "[Sensor] Warning: CoInitializeSecurity failed (0x%lx), WMI may have limited access
+",
                  static_cast<unsigned long>(hr));
         // Don't return false - WMI might still work without explicit security setup
     }
 
     // Cache WMI locator and service connections
     if (!reconnect_wmi()) {
-        qWarning("[Sensor] Warning: WMI connection failed, falling back to basic system info");
+        fprintf(stderr, "[Sensor] Warning: WMI connection failed, falling back to basic system info
+");
         collect_basic_system_info();
         return false;
     }
@@ -903,7 +909,8 @@ void SensorManager::collect_basic_system_info() {
 void SensorManager::init_pdh() {
     PDH_STATUS status = PdhOpenQuery(nullptr, 0, &pdh_query_);
     if (status != ERROR_SUCCESS) {
-        qWarning("[Sensor] PDH: failed to open query (0x%lx)",
+        fprintf(stderr, "[Sensor] PDH: failed to open query (0x%lx)
+",
                  static_cast<unsigned long>(status));
         pdh_query_ = nullptr;
         return;
@@ -913,14 +920,16 @@ void SensorManager::init_pdh() {
         L"\\Processor Information(_Total)\\% of Maximum Frequency",
         0, &pdh_freq_counter_);
     if (status != ERROR_SUCCESS) {
-        qWarning("[Sensor] PDH: failed to add frequency counter (0x%lx)",
+        fprintf(stderr, "[Sensor] PDH: failed to add frequency counter (0x%lx)
+",
                  static_cast<unsigned long>(status));
         pdh_freq_counter_ = nullptr;
     }
 
     // Initial data collection (PDH requires two samples)
     PdhCollectQueryData(pdh_query_);
-    qDebug("[Sensor] PDH dynamic frequency monitoring initialized");
+    fprintf(stderr, "[Sensor] PDH dynamic frequency monitoring initialized
+");
 }
 
 void SensorManager::cleanup_pdh() {
@@ -981,7 +990,8 @@ void SensorManager::poll_wmi() {
 
             if (is_connection_error(hr)) {
                 // Connection lost - try to reconnect on next poll
-                qWarning("[Sensor] WMI ROOT\\WMI connection lost, will reconnect");
+                fprintf(stderr, "[Sensor] WMI ROOT\\WMI connection lost, will reconnect
+");
                 cleanup_wmi();
                 collect_basic_system_info();
                 return;
@@ -1013,8 +1023,8 @@ void SensorManager::poll_wmi() {
                     if (std::abs(first_zone_temp - prev_wmi_temp_) < 0.01) {
                         wmi_temp_same_count_++;
                         if (wmi_temp_same_count_ >= WMI_STALE_THRESHOLD) {
-                            qWarning("[Sensor] WMI temperature stale for %d cycles, reconnecting...",
-                                     wmi_temp_same_count_);
+                            fprintf(stderr, "[Sensor] WMI temperature stale for %d cycles, reconnecting...\n",
+                                    wmi_temp_same_count_);
                             reconnect_wmi();
                             wmi_temp_same_count_ = 0;
                         }
@@ -1024,7 +1034,8 @@ void SensorManager::poll_wmi() {
                     prev_wmi_temp_ = first_zone_temp;
                 }
             } else if (hr == WBEM_E_ACCESS_DENIED) {
-                qWarning("[Sensor] Warning: WMI thermal query access denied");
+                fprintf(stderr, "[Sensor] Warning: WMI thermal query access denied
+");
             }
         }
 
@@ -1032,7 +1043,8 @@ void SensorManager::poll_wmi() {
         if (zone_idx == 0) {
             static bool thermal_fallback_logged = false;
             if (!thermal_fallback_logged) {
-                qWarning("[Sensor] MSAcpi_ThermalZoneTemperature returned 0 zones, trying fallback");
+                fprintf(stderr, "[Sensor] MSAcpi_ThermalZoneTemperature returned 0 zones, trying fallback
+");
                 thermal_fallback_logged = true;
             }
 
@@ -1068,7 +1080,8 @@ void SensorManager::poll_wmi() {
                     if (tz_idx == 0) {
                         static bool perf_thermal_logged = false;
                         if (!perf_thermal_logged) {
-                            qWarning("[Sensor] Win32_PerfFormattedData_Counters_ThermalZoneInformation also returned 0 zones");
+                            fprintf(stderr, "[Sensor] Win32_PerfFormattedData_Counters_ThermalZoneInformation also returned 0 zones
+");
                             perf_thermal_logged = true;
                         }
                     }
@@ -1090,7 +1103,8 @@ void SensorManager::poll_wmi() {
                     nullptr, &enumerator);
 
                 if (is_connection_error(hr)) {
-                    qWarning("[Sensor] WMI CIMV2 connection lost, will reconnect");
+                    fprintf(stderr, "[Sensor] WMI CIMV2 connection lost, will reconnect
+");
                     cleanup_wmi();
                     collect_basic_system_info();
                     return;
@@ -1118,7 +1132,8 @@ void SensorManager::poll_wmi() {
                     if (fan_idx == 0) {
                         static bool fan_empty_logged = false;
                         if (!fan_empty_logged) {
-                            qWarning("[Sensor] Win32_Fan returned 0 fans");
+                            fprintf(stderr, "[Sensor] Win32_Fan returned 0 fans
+");
                             fan_empty_logged = true;
                         }
                     }
@@ -1177,7 +1192,8 @@ void SensorManager::poll_wmi() {
                     if (!got_data) {
                         static bool cpu_empty_logged = false;
                         if (!cpu_empty_logged) {
-                            qWarning("[Sensor] Win32_Processor returned no data");
+                            fprintf(stderr, "[Sensor] Win32_Processor returned no data
+");
                             cpu_empty_logged = true;
                         }
                     }
@@ -1400,7 +1416,8 @@ bool SensorManager::init_adl() {
         adl_handle_ = LoadLibraryA("atiadlxy.dll"); // 32-bit fallback
     }
     if (!adl_handle_) {
-        qDebug("[Sensor] ADL: could not load atiadlxx.dll or atiadlxy.dll");
+        fprintf(stderr, "[Sensor] ADL: could not load atiadlxx.dll or atiadlxy.dll
+");
         return false;
     }
 
@@ -1425,15 +1442,18 @@ bool SensorManager::init_adl() {
         adl_temp_ = reinterpret_cast<ADL2_OVERDRIVE_TEMPERATURE_GET>(
             GetProcAddress(static_cast<HMODULE>(adl_handle_), temp_func_names[i]));
         if (adl_temp_) {
-            qDebug("[Sensor] ADL: resolved temperature function: %s", temp_func_names[i]);
+            fprintf(stderr, "[Sensor] ADL: resolved temperature function: %s
+", temp_func_names[i]);
             break;
         } else {
-            qDebug("[Sensor] ADL: %s not found", temp_func_names[i]);
+            fprintf(stderr, "[Sensor] ADL: %s not found
+", temp_func_names[i]);
         }
     }
 
     if (!adl_create_ || !adl_num_adapters_) {
-        qWarning("[Sensor] ADL: critical functions not found in DLL");
+        fprintf(stderr, "[Sensor] ADL: critical functions not found in DLL
+");
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
         adl_handle_ = nullptr;
         return false;
@@ -1447,7 +1467,8 @@ bool SensorManager::init_adl() {
         static_cast<AdlMallocCallback>(adl_malloc_callback));
     int adl_status = adl_create_(malloc_cb, 1, &adl_context_);
     if (adl_status != 0) { // ADL_OK == 0
-        qWarning("[Sensor] ADL: ADL2_Main_Control_Create failed with code %d", adl_status);
+        fprintf(stderr, "[Sensor] ADL: ADL2_Main_Control_Create failed with code %d
+", adl_status);
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
         adl_handle_ = nullptr;
         adl_create_ = nullptr;
@@ -1457,7 +1478,8 @@ bool SensorManager::init_adl() {
     // Get adapter count
     adl_adapter_count_ = 0;
     if (adl_num_adapters_(adl_context_, &adl_adapter_count_) != 0 || adl_adapter_count_ <= 0) {
-        qWarning("[Sensor] ADL: no adapters found");
+        fprintf(stderr, "[Sensor] ADL: no adapters found
+");
         if (adl_destroy_) adl_destroy_(adl_context_);
         adl_context_ = nullptr;
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
@@ -1465,18 +1487,21 @@ bool SensorManager::init_adl() {
         return false;
     }
 
-    qDebug("[Sensor] ADL initialized successfully, %d adapter(s) found", adl_adapter_count_);
+    fprintf(stderr, "[Sensor] ADL initialized successfully, %d adapter(s) found
+", adl_adapter_count_);
     return true;
 
 #elif defined(__linux__)
     adl_handle_ = dlopen("libatiadlxx.so", RTLD_NOW);
     if (!adl_handle_) {
-        qDebug("[Sensor] ADL: could not load libatiadlxx.so");
+        fprintf(stderr, "[Sensor] ADL: could not load libatiadlxx.so
+");
         return false;
     }
     // On Linux, AMD GPU temperature is typically available through sysfs/hwmon
     // (amdgpu driver). ADL on Linux is uncommon, so we just note its presence.
-    qDebug("[Sensor] ADL: loaded on Linux, but sysfs hwmon is preferred for AMD GPU");
+    fprintf(stderr, "[Sensor] ADL: loaded on Linux, but sysfs hwmon is preferred for AMD GPU
+");
     return false; // Don't activate ADL polling on Linux; sysfs handles it
 
 #else
@@ -1488,7 +1513,8 @@ void SensorManager::poll_adl() {
 #if defined(_WIN32)
     if (!adl_context_ || !adl_active_) {
         if (!adl_stub_logged_) {
-            qDebug("[Sensor] ADL poll skipped - context or functions unavailable");
+            fprintf(stderr, "[Sensor] ADL poll skipped - context or functions unavailable
+");
             adl_stub_logged_ = true;
         }
         return;
@@ -1524,7 +1550,8 @@ void SensorManager::poll_adl() {
 #else
     // On non-Windows platforms, ADL polling is not active.
     if (!adl_stub_logged_) {
-        qDebug("[Sensor] ADL poll skipped - not supported on this platform");
+        fprintf(stderr, "[Sensor] ADL poll skipped - not supported on this platform
+");
         adl_stub_logged_ = true;
     }
     (void)adl_handle_;

@@ -153,6 +153,7 @@ private:
     double prev_wmi_temp_ = -999.0;
     int wmi_temp_same_count_ = 0;
     static constexpr int WMI_STALE_THRESHOLD = 20;  // 10s (500ms x 20) same value = stale
+    int poll_count_ = 0;
 
     // ADL2 function pointer types
     typedef int (*ADL2_MAIN_CONTROL_CREATE)(int (*)(int), int, void**);
