@@ -58,13 +58,9 @@ public class Program
         try
         {
             computer.Open();
-            Console.Error.WriteLine("[LHM-Reader] Computer.Open() succeeded");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[LHM-Reader] Computer.Open() failed: {ex.GetType().Name}: {ex.Message}");
-            if (ex.InnerException != null)
-                Console.Error.WriteLine($"[LHM-Reader] Inner: {ex.InnerException.Message}");
             var error = new { error = "open_failed", message = ex.Message };
             Console.WriteLine(JsonSerializer.Serialize(error, JsonOptions));
             return 2;
@@ -78,12 +74,10 @@ public class Program
                 {
                     var output = CollectSensorData(computer);
                     var json = JsonSerializer.Serialize(output, JsonOptions);
-                    Console.Error.WriteLine($"[LHM-Reader] Collected {output.Hardware.Count} hardware entries");
                     Console.WriteLine(json);
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[LHM-Reader] CollectSensorData failed: {ex.Message}");
                     var error = new { error = "collect_failed", message = ex.Message };
                     Console.WriteLine(JsonSerializer.Serialize(error, JsonOptions));
                     return 1;

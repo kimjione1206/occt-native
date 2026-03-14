@@ -8,7 +8,9 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QDir>
-#include <iostream>
+#include <QDateTime>
+#include <QFile>
+#include <QTextStream>
 #endif
 
 namespace occt {
@@ -19,6 +21,20 @@ namespace occt {
 
 struct LhmBridge::Impl {
     QString helper_path;
+    QString log_file_;
+
+    void log(const std::string& msg) {
+        if (log_file_.isEmpty()) {
+            QString logDir = QCoreApplication::applicationDirPath() + "/logs";
+            QDir().mkpath(logDir);
+            log_file_ = logDir + "/lhm_bridge.log";
+        }
+        QFile f(log_file_);
+        if (f.open(QIODevice::Append | QIODevice::Text)) {
+            QTextStream ts(&f);
+            ts << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << " " << QString::fromStdString(msg) << "\n";
+        }
+    }
 
     bool find_helper() {
         // Look for lhm-sensor-reader.exe next to the application
@@ -48,7 +64,7 @@ struct LhmBridge::Impl {
         proc.start();
 
         if (!proc.waitForFinished(10000)) {
-            std::cerr << "[LHM] Helper timed out after 10s" << std::endl;
+            log("[LHM] Helper timed out after 10s");
             proc.kill();
             return false;
         }
@@ -57,27 +73,25 @@ struct LhmBridge::Impl {
         QByteArray errData = proc.readAllStandardError();
         int exitCode = proc.exitCode();
 
-        if (!errData.isEmpty()) {
-            std::cerr << "[LHM] Helper stderr: " << errData.toStdString() << std::endl;
-        }
-
         if (exitCode != 0) {
-            std::cerr << "[LHM] Helper exited with code " << exitCode
-                      << ", stdout: " << data.left(500).toStdString() << std::endl;
+            log("[LHM] Helper exit code: " + std::to_string(exitCode));
+            if (!errData.isEmpty()) {
+                log("[LHM] Helper stderr: " + errData.toStdString());
+            }
+            log("[LHM] Helper stdout (first 500 chars): " + data.left(500).toStdString());
             return false;
         }
 
         if (data.isEmpty()) {
-            std::cerr << "[LHM] Helper returned empty output" << std::endl;
+            log("[LHM] Helper returned empty output");
             return false;
         }
 
         QJsonParseError err;
         QJsonDocument doc = QJsonDocument::fromJson(data, &err);
         if (err.error != QJsonParseError::NoError) {
-            std::cerr << "[LHM] JSON parse error: " << err.errorString().toStdString()
-                      << " at offset " << err.offset << std::endl;
-            std::cerr << "[LHM] Raw output: " << data.left(500).toStdString() << std::endl;
+            log("[LHM] JSON parse error: " + err.errorString().toStdString()
+                + " at offset " + std::to_string(err.offset));
             return false;
         }
 
@@ -121,10 +135,9 @@ LhmBridge::~LhmBridge() = default;
 bool LhmBridge::initialize() {
     available_ = impl_->find_helper();
     if (available_) {
-        std::cout << "[LHM] Found helper at: "
-                  << impl_->helper_path.toStdString() << std::endl;
+        impl_->log("[LHM] Found helper at: " + impl_->helper_path.toStdString());
     } else {
-        std::cout << "[LHM] Helper not found, will use WMI fallback" << std::endl;
+        impl_->log("[LHM] Helper not found, using WMI fallback");
     }
     return available_;
 }
@@ -135,10 +148,10 @@ void LhmBridge::poll(std::vector<SensorReading>& out) {
     if (!available_) return;
     if (!impl_->poll_helper(out)) {
         fail_count_++;
-        std::cerr << "[LHM] Helper poll failed (attempt " << fail_count_ << "/5)" << std::endl;
+        impl_->log("[LHM] Poll failed (attempt " + std::to_string(fail_count_) + "/5)");
         if (fail_count_ >= 5) {
             available_ = false;
-            std::cerr << "[LHM] Helper failed 5 times, disabling bridge" << std::endl;
+            impl_->log("[LHM] Helper disabled after 5 failures");
         }
     } else {
         fail_count_ = 0; // Reset on success
