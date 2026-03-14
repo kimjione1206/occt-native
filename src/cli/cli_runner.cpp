@@ -266,7 +266,12 @@ int CliRunner::run_test(const CliOptions& opts)
             metric["errors"] = static_cast<int>(m.errors_found);
             metric["elapsed"] = m.elapsed_secs;
             metric["progress"] = m.progress_pct;
+            metric["pages_locked"] = m.pages_locked;
             emit_json("metric", "ram", QJsonDocument(metric).toVariant());
+            if (!m.pages_locked && m.progress_pct < 1.0) {
+                emit_json("warning", "ram",
+                    QString("Memory lock failure - test result reliability may be reduced"));
+            }
         });
 
         double mem_pct = opts.memory_percent / 100.0;
@@ -321,6 +326,16 @@ int CliRunner::run_test(const CliOptions& opts)
             metric["write_mbps"] = m.write_mbs;
             metric["iops"] = m.iops;
             metric["elapsed"] = m.elapsed_secs;
+            if (m.verify_errors > 0) {
+                metric["verify_errors"] = static_cast<qint64>(m.verify_errors);
+                metric["crc_errors"] = static_cast<qint64>(m.crc_errors);
+                metric["magic_errors"] = static_cast<qint64>(m.magic_errors);
+                metric["index_errors"] = static_cast<qint64>(m.index_errors);
+                metric["pattern_errors"] = static_cast<qint64>(m.pattern_errors);
+                metric["io_errors"] = static_cast<qint64>(m.io_errors);
+                metric["first_error_block"] = static_cast<qint64>(m.first_error_block);
+                metric["last_error_block"] = static_cast<qint64>(m.last_error_block);
+            }
             emit_json("metric", "storage", QJsonDocument(metric).toVariant());
         });
 
@@ -347,8 +362,8 @@ int CliRunner::run_test(const CliOptions& opts)
         result.mode = opts.mode.isEmpty() ? "Sequential Write" : opts.mode;
         result.duration = QString("%1s").arg(int(elapsed_secs));
         result.score = QString("R:%1 W:%2 MB/s").arg(metrics.read_mbs, 0, 'f', 1).arg(metrics.write_mbs, 0, 'f', 1);
-        result.passed = true;  // Storage test passes if no I/O error
-        result.error_count = 0;
+        result.passed = (metrics.verify_errors == 0);
+        result.error_count = static_cast<int>(metrics.verify_errors);
         results_.results.append(result);
 
     } else if (opts.test == "gpu") {
@@ -477,6 +492,16 @@ int CliRunner::run_test(const CliOptions& opts)
             metric["elapsed"] = m.elapsed_secs;
             metric["errors_cpu"] = m.errors_cpu;
             metric["errors_gpu"] = m.errors_gpu;
+            metric["power_stability_pct"] = m.power_stability_pct;
+            metric["max_power_drop_watts"] = m.max_power_drop_watts;
+            metric["power_drop_events"] = m.power_drop_events;
+            metric["power_correlated_errors"] = m.power_correlated_errors;
+            switch (m.health) {
+                case PsuHealthStatus::HEALTHY:  metric["health_status"] = QStringLiteral("HEALTHY"); break;
+                case PsuHealthStatus::MARGINAL: metric["health_status"] = QStringLiteral("MARGINAL"); break;
+                case PsuHealthStatus::UNSTABLE: metric["health_status"] = QStringLiteral("UNSTABLE"); break;
+                case PsuHealthStatus::FAILED:   metric["health_status"] = QStringLiteral("FAILED"); break;
+            }
             emit_json("metric", "psu", QJsonDocument(metric).toVariant());
         });
 
@@ -497,7 +522,9 @@ int CliRunner::run_test(const CliOptions& opts)
         result.mode = opts.mode.isEmpty() ? "Steady" : opts.mode;
         result.duration = QString("%1s").arg(int(elapsed_secs));
         result.score = QString("%1 W total").arg(metrics.total_power_watts, 0, 'f', 1);
-        result.passed = (last_psu_metrics.errors_cpu == 0 && last_psu_metrics.errors_gpu == 0);
+        result.passed = (last_psu_metrics.errors_cpu == 0 && last_psu_metrics.errors_gpu == 0
+                         && last_psu_metrics.health != PsuHealthStatus::FAILED
+                         && last_psu_metrics.health != PsuHealthStatus::UNSTABLE);
         result.error_count = last_psu_metrics.errors_cpu + last_psu_metrics.errors_gpu;
         if (!result.passed) test_passed = false;
         results_.results.append(result);
@@ -1176,7 +1203,12 @@ int CliRunner::run_combined(const CliOptions& opts)
                 metric["tested_mb"] = m.memory_used_mb;
                 metric["errors"] = static_cast<int>(m.errors_found);
                 metric["elapsed"] = m.elapsed_secs;
+                metric["pages_locked"] = m.pages_locked;
                 emit_json("metric", "ram", QJsonDocument(metric).toVariant());
+                if (!m.pages_locked && m.progress_pct < 1.0) {
+                    emit_json("warning", "ram",
+                        QString("Memory lock failure - test result reliability may be reduced"));
+                }
             });
         } else if (eng == "storage") {
             storage = std::make_unique<StorageEngine>();
@@ -1188,6 +1220,16 @@ int CliRunner::run_combined(const CliOptions& opts)
                 metric["read_mbps"] = m.read_mbs;
                 metric["write_mbps"] = m.write_mbs;
                 metric["elapsed"] = m.elapsed_secs;
+                if (m.verify_errors > 0) {
+                    metric["verify_errors"] = static_cast<qint64>(m.verify_errors);
+                    metric["crc_errors"] = static_cast<qint64>(m.crc_errors);
+                    metric["magic_errors"] = static_cast<qint64>(m.magic_errors);
+                    metric["index_errors"] = static_cast<qint64>(m.index_errors);
+                    metric["pattern_errors"] = static_cast<qint64>(m.pattern_errors);
+                    metric["io_errors"] = static_cast<qint64>(m.io_errors);
+                    metric["first_error_block"] = static_cast<qint64>(m.first_error_block);
+                    metric["last_error_block"] = static_cast<qint64>(m.last_error_block);
+                }
                 emit_json("metric", "storage", QJsonDocument(metric).toVariant());
             });
         } else {
@@ -1298,9 +1340,11 @@ int CliRunner::run_combined(const CliOptions& opts)
         r.test_type = "Storage";
         r.mode = "combined";
         r.duration = QString("%1s").arg(int(total_secs));
-        r.error_count = 0;
-        r.passed = true;
+        r.error_count = static_cast<int>(sm.verify_errors);
+        r.passed = (sm.verify_errors == 0);
         r.score = QString("R:%1 W:%2 MB/s").arg(sm.read_mbs, 0, 'f', 1).arg(sm.write_mbs, 0, 'f', 1);
+        if (!r.passed) test_passed = false;
+        total_errors += r.error_count;
         results_.results.append(r);
     }
 

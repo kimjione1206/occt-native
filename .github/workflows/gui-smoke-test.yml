@@ -165,6 +165,80 @@ jobs:
         }
 
         Write-Host "`nAll CLI tests completed!"
+
+    - name: Validate CLI JSON output structure
+      shell: pwsh
+      run: |
+        $PSNativeCommandUseErrorActionPreference = $false
+        $ErrorActionPreference = 'Continue'
+
+        $exe = "build/${{ env.BUILD_TYPE }}/occt_native.exe"
+
+        # CPU test with captured output
+        Write-Host "=== CLI-UI Consistency: CPU ==="
+        $cpuOutput = & $exe --cli --test cpu --mode avx2 --duration 5 --threads 2 2>&1 | Out-String
+
+        # Parse JSON lines from output
+        $cpuLines = $cpuOutput -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+        $cpuMetrics = @()
+        foreach ($line in $cpuLines) {
+            try {
+                $j = $line.Trim() | ConvertFrom-Json
+                if ($j.type -eq "metric") { $cpuMetrics += $j }
+            } catch {}
+        }
+
+        if ($cpuMetrics.Count -eq 0) {
+            Write-Error "No CPU metric events in JSON output"
+            exit 1
+        }
+
+        $last = $cpuMetrics[-1]
+        # Verify fields that should also appear in UI
+        $requiredFields = @("gflops", "errors", "threads")
+        foreach ($f in $requiredFields) {
+            if ($null -eq $last.$f) {
+                Write-Error "Missing field '$f' in CPU metric JSON"
+                exit 1
+            }
+            Write-Host "  CLI CPU.$f = $($last.$f)"
+        }
+        Write-Host "PASS: CPU CLI JSON structure validated"
+
+        # RAM test
+        Write-Host "`n=== CLI-UI Consistency: RAM ==="
+        $ramOutput = & $exe --cli --test ram --mode march_c --memory-pct 5 --passes 1 --duration 5 2>&1 | Out-String
+        $ramLines = $ramOutput -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+        foreach ($line in $ramLines) {
+            try {
+                $j = $line.Trim() | ConvertFrom-Json
+                if ($j.type -eq "metric" -and $null -ne $j.errors_found) {
+                    Write-Host "  CLI RAM.errors_found = $($j.errors_found)"
+                    Write-Host "  CLI RAM.pages_locked = $($j.pages_locked)"
+                    break
+                }
+            } catch {}
+        }
+        Write-Host "PASS: RAM CLI JSON structure validated"
+
+        # Storage test
+        Write-Host "`n=== CLI-UI Consistency: Storage ==="
+        $stgOutput = & $exe --cli --test storage --mode verify_seq --file-size 32 --duration 10 2>&1 | Out-String
+        $stgLines = $stgOutput -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+        foreach ($line in $stgLines) {
+            try {
+                $j = $line.Trim() | ConvertFrom-Json
+                if ($j.type -eq "metric") {
+                    Write-Host "  CLI Storage.throughput_mbs = $($j.throughput_mbs)"
+                    if ($null -ne $j.verify_errors) {
+                        Write-Host "  CLI Storage.verify_errors = $($j.verify_errors)"
+                    }
+                    break
+                }
+            } catch {}
+        }
+        Write-Host "PASS: Storage CLI JSON structure validated"
+
         exit 0
 
     - name: Upload CLI test logs
@@ -298,20 +372,23 @@ jobs:
 
         function Assert-Value($name, $value, $check) {
             $script:totalAsserts++
-            Write-Host "  [UI-VALUE] $name = '$value'"
+            $line = "[UI-VALUE] $name = '$value'"
+            Write-Host "  $line"
             try {
                 $result = & $check
                 if ($result) {
                     $script:passedAsserts++
-                    Write-Host "  [PASS] $name"
+                    $resultLine = "[PASS] $name"
                 } else {
                     $script:failedAsserts++
-                    Write-Host "  [FAIL] $name - assertion not satisfied"
+                    $resultLine = "[FAIL] $name - assertion not satisfied"
                 }
             } catch {
                 $script:failedAsserts++
-                Write-Host "  [FAIL] $name - $($_.Exception.Message)"
+                $resultLine = "[FAIL] $name - $($_.Exception.Message)"
             }
+            Write-Host "  $resultLine"
+            Add-Content -Path "screenshots/assertion_results.txt" -Value "$line`n$resultLine"
         }
 
         function Click-ButtonByName($buttonName) {
@@ -407,12 +484,18 @@ jobs:
         # CI runners lack temp sensors, so N/A is expected. Just verify label exists.
         Assert-Value "Temperature" $v { $v -ne "NOT_FOUND" }
         if ($v -eq "N/A") { Write-Host "  (N/A expected: CI runner has no temperature sensor)" }
+        $v = Read-UIValue "주파수"
+        Assert-Value "CPU Frequency" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "05_cpu_running_13s"
         Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
         Take-Screenshot "06_cpu_stopped"
+
+        # -- CPU post-stop status check --
+        $v = Read-UIValue "코어별 상태"
+        Assert-Value "CPU Core Status Section" $v { $v -ne "NOT_FOUND" }
 
         # ── 3. RAM Test ──
         Write-Host "`n=== 3. RAM Test ==="
@@ -430,6 +513,10 @@ jobs:
         Assert-Value "RAM Bandwidth" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
         $v = Read-UIValue "발견된 오류"
         Assert-Value "RAM Errors" $v { $v -ne "NOT_FOUND" }
+        $v = Read-UIValue "패스"
+        Assert-Value "RAM Pass Progress" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "테스트 진행률"
+        Assert-Value "RAM Progress Label" $v { $v -ne "NOT_FOUND" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "10_ram_running_13s"
@@ -453,6 +540,10 @@ jobs:
         Assert-Value "Storage IOPS" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
         $v = Read-UIValue "처리량"
         Assert-Value "Storage Throughput" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "검증 오류"
+        Assert-Value "Storage Verify Errors" $v { $v -ne "NOT_FOUND" -and $v -match '^\d+$' }
+        $v = Read-UIValue "평균 지연시간"
+        Assert-Value "Storage Avg Latency" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
         Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
@@ -480,6 +571,12 @@ jobs:
         Write-Host "  -- PSU UI Value Checks --"
         $v = Read-UIValue "총 전력"
         Assert-Value "PSU Total Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "CPU 전력"
+        Assert-Value "PSU CPU Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
+        $v = Read-UIValue "CPU 오류"
+        Assert-Value "PSU CPU Errors" $v { $v -ne "NOT_FOUND" }
+        $v = Read-UIValue "GPU 전력"
+        Assert-Value "PSU GPU Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
         Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
@@ -560,16 +657,48 @@ jobs:
         Start-Sleep -Seconds 2
         Take-Screenshot "29_dashboard_final"
 
-        # -- Dashboard value read (log only) --
+        # -- Dashboard value read & gauge checks --
         Write-Host "  -- Dashboard UI Value Checks --"
         $v = Read-UIValue "CPU"
         Write-Host "  [UI-VALUE] Dashboard CPU info = '$v'"
 
+        # Check gauge widgets exist via accessible description
+        Write-Host "  -- Dashboard Gauge Checks --"
+        try {
+            $win = Get-AppWindow
+            if ($win) {
+                $allElements = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                    [System.Windows.Automation.Condition]::TrueCondition)
+                $cpuGaugeFound = $false
+                $gpuGaugeFound = $false
+                $ramGaugeFound = $false
+                foreach ($el in $allElements) {
+                    try {
+                        $desc = $el.Current.AutomationId
+                        $accDesc = ""
+                        try { $accDesc = $el.Current.HelpText } catch {}
+                        $name = $el.Current.Name
+                        # CircularGauge uses setAccessibleDescription which maps to HelpText in UIA
+                        if ($accDesc -eq "dash_cpu_gauge" -or $name -eq "CPU") { $cpuGaugeFound = $true }
+                        if ($accDesc -eq "dash_gpu_gauge" -or $name -eq "GPU") { $gpuGaugeFound = $true }
+                        if ($accDesc -eq "dash_ram_gauge" -or $name -eq "RAM") { $ramGaugeFound = $true }
+                    } catch {}
+                }
+                Assert-Value "Dashboard CPU Gauge" $(if ($cpuGaugeFound) {"exists"} else {"NOT_FOUND"}) { $cpuGaugeFound }
+                Assert-Value "Dashboard GPU Gauge" $(if ($gpuGaugeFound) {"exists"} else {"NOT_FOUND"}) { $gpuGaugeFound }
+                Assert-Value "Dashboard RAM Gauge" $(if ($ramGaugeFound) {"exists"} else {"NOT_FOUND"}) { $ramGaugeFound }
+            }
+        } catch { Write-Host "  Dashboard gauge scan failed: $($_.Exception.Message)" }
+
+        # Check "실시간 사용률" title label exists
+        $v = Read-UIValue "실시간 사용률"
+        Assert-Value "Dashboard Realtime Usage Title" $v { $v -ne "NOT_FOUND" }
+
         # ── UI Value Verification Summary ──
         Write-Host "`n=== UI Value Verification Summary ==="
-        Write-Host "Total assertions: $script:totalAsserts"
-        Write-Host "Passed: $script:passedAsserts"
-        Write-Host "Failed: $script:failedAsserts"
+        $summary = "Total: $script:totalAsserts | Passed: $script:passedAsserts | Failed: $script:failedAsserts"
+        Write-Host $summary
+        Add-Content -Path "screenshots/assertion_results.txt" -Value "`n=== SUMMARY ===`n$summary"
         if ($script:failedAsserts -gt 0) {
             Write-Host "WARNING: Some UI value assertions failed!"
         }
@@ -582,6 +711,22 @@ jobs:
 
         $count = (Get-ChildItem screenshots\*.png).Count
         Write-Host "`nDone! $count screenshots captured."
+
+    - name: Verify UI assertions passed
+      shell: pwsh
+      run: |
+        $logContent = Get-Content -Path screenshots/assertion_results.txt -ErrorAction SilentlyContinue
+        if (-not $logContent) {
+            Write-Host "No assertion results file found (screenshot step may have failed entirely)"
+            exit 0
+        }
+        Write-Host "=== Assertion Results ==="
+        Write-Host ($logContent -join "`n")
+        if ($logContent -match "\[FAIL\]") {
+            Write-Error "Some UI assertions failed! See details above."
+            exit 1
+        }
+        Write-Host "All UI assertions passed"
 
     - name: Upload screenshots
       uses: actions/upload-artifact@v4

@@ -21,6 +21,13 @@ enum class PsuLoadPattern {
     RAMP     // 0% -> 100% gradual increase
 };
 
+enum class PsuHealthStatus {
+    HEALTHY,        // 정상
+    MARGINAL,       // 주의 (전력 변동 있으나 에러 없음)
+    UNSTABLE,       // 불안정 (전력 변동 + 에러 상관)
+    FAILED          // 실패 (엔진 중단 또는 과다 에러)
+};
+
 struct PsuMetrics {
     double total_power_watts = 0.0;
     double cpu_power_watts = 0.0;
@@ -30,6 +37,15 @@ struct PsuMetrics {
     double elapsed_secs = 0.0;
     int errors_cpu = 0;
     int errors_gpu = 0;
+
+    // 전력 안정성 분석
+    double power_stability_pct = 100.0;  // 전력 변동 안정도 (100=안정)
+    double max_power_drop_watts = 0.0;   // 최대 순간 전력 강하
+    int power_drop_events = 0;           // 급격한 전력 변동 횟수
+    bool power_correlated_errors = false; // 전력 변동과 동시에 에러 발생
+
+    // PSU 상태 판정
+    PsuHealthStatus health = PsuHealthStatus::HEALTHY;
 };
 
 class PsuEngine : public IEngine {
@@ -85,6 +101,16 @@ private:
     std::mutex cb_mutex_;
 
     bool use_all_gpus_ = false;
+
+    // 전력-에러 상관분석 추적용
+    double prev_total_power_ = 0.0;
+    double power_sum_ = 0.0;
+    int power_sample_count_ = 0;
+    double power_min_ = 1e9;
+    double power_max_ = 0.0;
+    int prev_total_errors_ = 0;
+    std::chrono::steady_clock::time_point last_power_drop_time_;
+    bool recent_power_drop_ = false;
 };
 
 } // namespace occt

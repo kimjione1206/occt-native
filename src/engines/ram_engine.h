@@ -17,6 +17,8 @@ struct MemoryError {
     uint64_t address;
     uint64_t expected;
     uint64_t actual;
+    uint64_t bit_diff;      // expected XOR actual — which bits flipped
+    int flipped_bits;       // popcount of bit_diff
     double timestamp_secs;  // time since test start
 };
 

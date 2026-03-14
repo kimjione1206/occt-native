@@ -42,7 +42,12 @@ struct StorageMetrics {
     uint64_t blocks_verified = 0;
     uint64_t verify_errors   = 0;
     uint64_t crc_errors      = 0;
+    uint64_t magic_errors    = 0;
+    uint64_t index_errors    = 0;
     uint64_t pattern_errors  = 0;
+    uint64_t io_errors       = 0;
+    uint64_t first_error_block = 0;
+    uint64_t last_error_block  = 0;
     double   verify_mbs      = 0.0;
     std::vector<StorageError> error_log; // capped at 1000
 };

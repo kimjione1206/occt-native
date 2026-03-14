@@ -14,16 +14,35 @@
 
 // Verification constants: deterministic FMA chain parameters
 // seed * mul + add, repeated VERIFY_ITERATIONS times
+// 하위호환을 위해 기존 상수 유지 (첫 번째 시드)
 static constexpr double VERIFY_SEED = 1.0;
 static constexpr double VERIFY_MUL  = 0.9999999999;
 static constexpr double VERIFY_ADD  = 0.0000000001;
-static constexpr int    VERIFY_ITERATIONS = 1000;
+static constexpr int    VERIFY_ITERATIONS = 10000;  // 10,000회: 실제 OCCT 수준
 
 // Pre-compute expected value using scalar std::fma (IEEE 754 guaranteed)
 static double compute_scalar_expected() {
     double acc = VERIFY_SEED;
     for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
         acc = std::fma(acc, VERIFY_MUL, VERIFY_ADD);
+    }
+    return acc;
+}
+
+// 다중 시드용 오버로드: 시드 세트를 받아 scalar expected 계산
+static double compute_scalar_expected(const occt::cpu::VerifySeedSet& seeds, int iterations) {
+    double acc = seeds.seed;
+    for (int i = 0; i < iterations; ++i) {
+        acc = std::fma(acc, seeds.mul, seeds.add);
+    }
+    return acc;
+}
+
+// 다중 시드용 non-FMA 오버로드
+static double compute_scalar_expected_nofma(const occt::cpu::VerifySeedSet& seeds, int iterations) {
+    double acc = seeds.seed;
+    for (int i = 0; i < iterations; ++i) {
+        acc = acc * seeds.mul + seeds.add;
     }
     return acc;
 }
@@ -170,39 +189,43 @@ VerifyResult stress_and_verify_sse(uint64_t duration_ns) {
     VerifyResult result;
     result.lane_count = 2;
 
-    const double expected = compute_scalar_expected();
-
-    const __m128d mul = _mm_set1_pd(VERIFY_MUL);
-    const __m128d add = _mm_set1_pd(VERIFY_ADD);
-
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
-        // Start with deterministic seed
-        __m128d acc = _mm_set1_pd(VERIFY_SEED);
+        // 다중 시드 순차 테스트
+        for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
+            const auto& seeds = VERIFY_SEEDS[s];
+            const double expected = compute_scalar_expected(seeds, VERIFY_ITERATIONS);
 
-        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-            acc = _mm_add_pd(_mm_mul_pd(acc, mul), add);
-        }
-        result.ops += 2ULL * VERIFY_ITERATIONS * 2; // 2 doubles * 2 ops
+            const __m128d mul = _mm_set1_pd(seeds.mul);
+            const __m128d add = _mm_set1_pd(seeds.add);
+            __m128d acc = _mm_set1_pd(seeds.seed);
 
-        // Extract and verify
-        alignas(16) double vals[2];
-        _mm_store_pd(vals, acc);
-
-        for (int lane = 0; lane < 2; ++lane) {
-            uint64_t exp_bits, act_bits;
-            std::memcpy(&exp_bits, &expected, sizeof(double));
-            std::memcpy(&act_bits, &vals[lane], sizeof(double));
-            if (exp_bits != act_bits) {
-                result.passed = false;
-                result.lane_errors++;
-                result.expected[lane] = expected;
-                result.actual[lane] = vals[lane];
+            for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+                acc = _mm_add_pd(_mm_mul_pd(acc, mul), add);
             }
-        }
+            result.ops += 2ULL * VERIFY_ITERATIONS * 2; // 2 doubles * 2 ops
 
-        DO_NOT_OPTIMIZE(acc);
+            // Extract and verify
+            alignas(16) double vals[2];
+            _mm_store_pd(vals, acc);
+
+            for (int lane = 0; lane < 2; ++lane) {
+                uint64_t exp_bits, act_bits;
+                std::memcpy(&exp_bits, &expected, sizeof(double));
+                std::memcpy(&act_bits, &vals[lane], sizeof(double));
+                if (exp_bits != act_bits) {
+                    result.passed = false;
+                    result.lane_errors++;
+                    result.expected[lane] = expected;
+                    result.actual[lane] = vals[lane];
+                }
+            }
+
+            DO_NOT_OPTIMIZE(acc);
+
+            if (!result.passed) break;
+        }
 
         if (!result.passed) break;
 
@@ -291,38 +314,43 @@ VerifyResult stress_and_verify_avx2(uint64_t duration_ns) {
     VerifyResult result;
     result.lane_count = 4;
 
-    const double expected = compute_scalar_expected();
-
-    const __m256d mul = _mm256_set1_pd(VERIFY_MUL);
-    const __m256d add = _mm256_set1_pd(VERIFY_ADD);
-
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
-        __m256d acc = _mm256_set1_pd(VERIFY_SEED);
+        // 다중 시드 순차 테스트
+        for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
+            const auto& seeds = VERIFY_SEEDS[s];
+            const double expected = compute_scalar_expected(seeds, VERIFY_ITERATIONS);
 
-        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-            acc = _mm256_fmadd_pd(acc, mul, add);
-        }
-        result.ops += 4ULL * VERIFY_ITERATIONS * 2;
+            const __m256d mul = _mm256_set1_pd(seeds.mul);
+            const __m256d add = _mm256_set1_pd(seeds.add);
+            __m256d acc = _mm256_set1_pd(seeds.seed);
 
-        // Extract and verify all 4 lanes
-        alignas(32) double vals[4];
-        _mm256_store_pd(vals, acc);
-
-        for (int lane = 0; lane < 4; ++lane) {
-            uint64_t exp_bits, act_bits;
-            std::memcpy(&exp_bits, &expected, sizeof(double));
-            std::memcpy(&act_bits, &vals[lane], sizeof(double));
-            if (exp_bits != act_bits) {
-                result.passed = false;
-                result.lane_errors++;
-                result.expected[lane] = expected;
-                result.actual[lane] = vals[lane];
+            for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+                acc = _mm256_fmadd_pd(acc, mul, add);
             }
-        }
+            result.ops += 4ULL * VERIFY_ITERATIONS * 2;
 
-        DO_NOT_OPTIMIZE(acc);
+            // Extract and verify all 4 lanes
+            alignas(32) double vals[4];
+            _mm256_store_pd(vals, acc);
+
+            for (int lane = 0; lane < 4; ++lane) {
+                uint64_t exp_bits, act_bits;
+                std::memcpy(&exp_bits, &expected, sizeof(double));
+                std::memcpy(&act_bits, &vals[lane], sizeof(double));
+                if (exp_bits != act_bits) {
+                    result.passed = false;
+                    result.lane_errors++;
+                    result.expected[lane] = expected;
+                    result.actual[lane] = vals[lane];
+                }
+            }
+
+            DO_NOT_OPTIMIZE(acc);
+
+            if (!result.passed) break;
+        }
 
         if (!result.passed) break;
 
@@ -422,38 +450,43 @@ VerifyResult stress_and_verify_avx_nofma(uint64_t duration_ns) {
     VerifyResult result;
     result.lane_count = 4;
 
-    const double expected = compute_scalar_expected_nofma();
-
-    const __m256d mul = _mm256_set1_pd(VERIFY_MUL);
-    const __m256d add = _mm256_set1_pd(VERIFY_ADD);
-
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
-        __m256d acc = _mm256_set1_pd(VERIFY_SEED);
+        // 다중 시드 순차 테스트
+        for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
+            const auto& seeds = VERIFY_SEEDS[s];
+            const double expected = compute_scalar_expected_nofma(seeds, VERIFY_ITERATIONS);
 
-        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-            acc = _mm256_add_pd(_mm256_mul_pd(acc, mul), add);
-        }
-        result.ops += 4ULL * VERIFY_ITERATIONS * 2;
+            const __m256d mul = _mm256_set1_pd(seeds.mul);
+            const __m256d add = _mm256_set1_pd(seeds.add);
+            __m256d acc = _mm256_set1_pd(seeds.seed);
 
-        // Extract and verify all 4 lanes
-        alignas(32) double vals[4];
-        _mm256_store_pd(vals, acc);
-
-        for (int lane = 0; lane < 4; ++lane) {
-            uint64_t exp_bits, act_bits;
-            std::memcpy(&exp_bits, &expected, sizeof(double));
-            std::memcpy(&act_bits, &vals[lane], sizeof(double));
-            if (exp_bits != act_bits) {
-                result.passed = false;
-                result.lane_errors++;
-                result.expected[lane] = expected;
-                result.actual[lane] = vals[lane];
+            for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+                acc = _mm256_add_pd(_mm256_mul_pd(acc, mul), add);
             }
-        }
+            result.ops += 4ULL * VERIFY_ITERATIONS * 2;
 
-        DO_NOT_OPTIMIZE(acc);
+            // Extract and verify all 4 lanes
+            alignas(32) double vals[4];
+            _mm256_store_pd(vals, acc);
+
+            for (int lane = 0; lane < 4; ++lane) {
+                uint64_t exp_bits, act_bits;
+                std::memcpy(&exp_bits, &expected, sizeof(double));
+                std::memcpy(&act_bits, &vals[lane], sizeof(double));
+                if (exp_bits != act_bits) {
+                    result.passed = false;
+                    result.lane_errors++;
+                    result.expected[lane] = expected;
+                    result.actual[lane] = vals[lane];
+                }
+            }
+
+            DO_NOT_OPTIMIZE(acc);
+
+            if (!result.passed) break;
+        }
 
         if (!result.passed) break;
 
@@ -543,38 +576,43 @@ VerifyResult stress_and_verify_avx512(uint64_t duration_ns) {
     VerifyResult result;
     result.lane_count = 8;
 
-    const double expected = compute_scalar_expected();
-
-    const __m512d mul = _mm512_set1_pd(VERIFY_MUL);
-    const __m512d add = _mm512_set1_pd(VERIFY_ADD);
-
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
-        __m512d acc = _mm512_set1_pd(VERIFY_SEED);
+        // 다중 시드 순차 테스트
+        for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
+            const auto& seeds = VERIFY_SEEDS[s];
+            const double expected = compute_scalar_expected(seeds, VERIFY_ITERATIONS);
 
-        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-            acc = _mm512_fmadd_pd(acc, mul, add);
-        }
-        result.ops += 8ULL * VERIFY_ITERATIONS * 2;
+            const __m512d mul = _mm512_set1_pd(seeds.mul);
+            const __m512d add = _mm512_set1_pd(seeds.add);
+            __m512d acc = _mm512_set1_pd(seeds.seed);
 
-        // Extract and verify all 8 lanes
-        alignas(64) double vals[8];
-        _mm512_store_pd(vals, acc);
-
-        for (int lane = 0; lane < 8; ++lane) {
-            uint64_t exp_bits, act_bits;
-            std::memcpy(&exp_bits, &expected, sizeof(double));
-            std::memcpy(&act_bits, &vals[lane], sizeof(double));
-            if (exp_bits != act_bits) {
-                result.passed = false;
-                result.lane_errors++;
-                result.expected[lane] = expected;
-                result.actual[lane] = vals[lane];
+            for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+                acc = _mm512_fmadd_pd(acc, mul, add);
             }
-        }
+            result.ops += 8ULL * VERIFY_ITERATIONS * 2;
 
-        DO_NOT_OPTIMIZE(acc);
+            // Extract and verify all 8 lanes
+            alignas(64) double vals[8];
+            _mm512_store_pd(vals, acc);
+
+            for (int lane = 0; lane < 8; ++lane) {
+                uint64_t exp_bits, act_bits;
+                std::memcpy(&exp_bits, &expected, sizeof(double));
+                std::memcpy(&act_bits, &vals[lane], sizeof(double));
+                if (exp_bits != act_bits) {
+                    result.passed = false;
+                    result.lane_errors++;
+                    result.expected[lane] = expected;
+                    result.actual[lane] = vals[lane];
+                }
+            }
+
+            DO_NOT_OPTIMIZE(acc);
+
+            if (!result.passed) break;
+        }
 
         if (!result.passed) break;
 
@@ -692,38 +730,43 @@ VerifyResult stress_and_verify_neon(uint64_t duration_ns) {
     VerifyResult result;
     result.lane_count = 2;
 
-    const double expected = compute_scalar_expected();
-
-    const float64x2_t mul = vdupq_n_f64(VERIFY_MUL);
-    const float64x2_t add = vdupq_n_f64(VERIFY_ADD);
-
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
-        float64x2_t acc = vdupq_n_f64(VERIFY_SEED);
+        // 다중 시드 순차 테스트
+        for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
+            const auto& seeds = VERIFY_SEEDS[s];
+            const double expected = compute_scalar_expected(seeds, VERIFY_ITERATIONS);
 
-        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-            acc = vfmaq_f64(add, acc, mul);
-        }
-        result.ops += 2ULL * VERIFY_ITERATIONS * 2;
+            const float64x2_t mul = vdupq_n_f64(seeds.mul);
+            const float64x2_t add = vdupq_n_f64(seeds.add);
+            float64x2_t acc = vdupq_n_f64(seeds.seed);
 
-        // Extract and verify both lanes
-        double vals[2];
-        vst1q_f64(vals, acc);
-
-        for (int lane = 0; lane < 2; ++lane) {
-            uint64_t exp_bits, act_bits;
-            std::memcpy(&exp_bits, &expected, sizeof(double));
-            std::memcpy(&act_bits, &vals[lane], sizeof(double));
-            if (exp_bits != act_bits) {
-                result.passed = false;
-                result.lane_errors++;
-                result.expected[lane] = expected;
-                result.actual[lane] = vals[lane];
+            for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+                acc = vfmaq_f64(add, acc, mul);
             }
-        }
+            result.ops += 2ULL * VERIFY_ITERATIONS * 2;
 
-        DO_NOT_OPTIMIZE(acc);
+            // Extract and verify both lanes
+            double vals[2];
+            vst1q_f64(vals, acc);
+
+            for (int lane = 0; lane < 2; ++lane) {
+                uint64_t exp_bits, act_bits;
+                std::memcpy(&exp_bits, &expected, sizeof(double));
+                std::memcpy(&act_bits, &vals[lane], sizeof(double));
+                if (exp_bits != act_bits) {
+                    result.passed = false;
+                    result.lane_errors++;
+                    result.expected[lane] = expected;
+                    result.actual[lane] = vals[lane];
+                }
+            }
+
+            DO_NOT_OPTIMIZE(acc);
+
+            if (!result.passed) break;
+        }
 
         if (!result.passed) break;
 
@@ -830,29 +873,36 @@ static VerifyResult stress_and_verify_scalar(uint64_t duration_ns) {
     VerifyResult result;
     result.lane_count = 1;
 
-    const double expected = compute_scalar_expected();
-
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
-        double acc = VERIFY_SEED;
-        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-            acc = std::fma(acc, VERIFY_MUL, VERIFY_ADD);
-        }
-        result.ops += VERIFY_ITERATIONS * 2;
+        // 다중 시드 순차 테스트
+        for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
+            const auto& seeds = VERIFY_SEEDS[s];
+            const double expected = compute_scalar_expected(seeds, VERIFY_ITERATIONS);
 
-        uint64_t exp_bits, act_bits;
-        std::memcpy(&exp_bits, &expected, sizeof(double));
-        std::memcpy(&act_bits, &acc, sizeof(double));
-        if (exp_bits != act_bits) {
-            result.passed = false;
-            result.lane_errors++;
-            result.expected[0] = expected;
-            result.actual[0] = acc;
-            break;
+            double acc = seeds.seed;
+            for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+                acc = std::fma(acc, seeds.mul, seeds.add);
+            }
+            result.ops += VERIFY_ITERATIONS * 2;
+
+            uint64_t exp_bits, act_bits;
+            std::memcpy(&exp_bits, &expected, sizeof(double));
+            std::memcpy(&act_bits, &acc, sizeof(double));
+            if (exp_bits != act_bits) {
+                result.passed = false;
+                result.lane_errors++;
+                result.expected[0] = expected;
+                result.actual[0] = acc;
+            }
+
+            DO_NOT_OPTIMIZE(acc);
+
+            if (!result.passed) break;
         }
 
-        DO_NOT_OPTIMIZE(acc);
+        if (!result.passed) break;
 
         auto now = std::chrono::high_resolution_clock::now();
         uint64_t elapsed = static_cast<uint64_t>(

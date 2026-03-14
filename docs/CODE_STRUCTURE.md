@@ -120,11 +120,11 @@ start(mode, ...) → is_running() == true
 
 | 엔진 | 모드 수 | 스레드 구조 | 검증 방식 |
 |------|---------|------------|----------|
-| CPU | 10 (AVX2, AVX512, SSE, AVX_FLOAT, AUTO, Linpack, Prime...) | N workers + metrics | IEEE 754 FMA 체인 비트 비교 (AVX_FLOAT: 순수 AVX 256-bit, FMA 미사용) |
-| GPU | 8 (Matrix, FMA, Trig, VRAM, Vulkan...) | 1 worker + metrics | Artifact Detector (픽셀 비교) |
-| RAM | 6 (March C-, Walking 1/0, Checker...) | 1 worker | 패턴 쓰기 → 읽기 비교 |
-| Storage | 9 (Seq/Rand R/W, Verify, Fill...) | 1 worker + I/O | CRC32C + 블록 헤더 검증 (duration_secs 지원, 유니코드 경로, 파일 로깅) |
-| PSU | 3 (Steady, Spike, Ramp) | CPU+GPU 동시 | 하위 엔진 에러 집계 (SensorManager 연동) |
+| CPU | 10 (AVX2, AVX512, SSE, AVX_FLOAT, AUTO, Linpack, Prime...) | N workers + metrics | IEEE 754 FMA 체인 비트 비교 (10,000회 반복, 4종 시드, Prime DB 검증, CACHE/LARGE_DATA 체크섬) |
+| GPU | 8 (Matrix, FMA, Trig, VRAM, Vulkan...) | 1 worker + metrics | Artifact Detector (3프레임/1회 샘플링) + VRAM 7종 패턴 (March C-, Butterfly, Random 포함) + FMA 교차검증 |
+| RAM | 6 (March C-, Walking 1/0, Checker...) | 1 worker | 패턴 쓰기 → 캐시 플러시(clflush) → 읽기 비교 + 비트레벨 XOR 분석 + 상보 Checkerboard |
+| Storage | 9 (Seq/Rand R/W, Verify, Fill...) | 1 worker + I/O | CRC32C + 블록 헤더 검증 + FUA(O_SYNC/WRITE_THROUGH) + 타입별 에러 통계 |
+| PSU | 3 (Steady, Spike, Ramp) | CPU+GPU 동시 | 전력-에러 상관분석 + 4단계 상태 판정 (HEALTHY/MARGINAL/UNSTABLE/FAILED) |
 
 ## GUI 아키텍처
 

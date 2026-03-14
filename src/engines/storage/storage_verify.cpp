@@ -201,11 +201,31 @@ void StorageEngine::report_storage_error(const StorageError& err) {
         case ErrorType::CRC_MISMATCH:
             metrics_.crc_errors++;
             break;
+        case ErrorType::MAGIC_MISMATCH:
+            metrics_.magic_errors++;
+            break;
+        case ErrorType::BLOCK_INDEX_MISMATCH:
+            metrics_.index_errors++;
+            break;
         case ErrorType::PATTERN_MISMATCH:
             metrics_.pattern_errors++;
             break;
-        default:
+        case ErrorType::IO_ERROR:
+            metrics_.io_errors++;
             break;
+    }
+
+    // Track error block range (first and last error block indices)
+    uint64_t blk = static_cast<uint64_t>(err.block_index);
+    if (metrics_.verify_errors == 1) {
+        // First error — initialize both
+        metrics_.first_error_block = blk;
+        metrics_.last_error_block = blk;
+    } else {
+        if (blk < metrics_.first_error_block)
+            metrics_.first_error_block = blk;
+        if (blk > metrics_.last_error_block)
+            metrics_.last_error_block = blk;
     }
 
     if (metrics_.error_log.size() < 1000) {

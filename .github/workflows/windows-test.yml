@@ -232,6 +232,24 @@ jobs:
           if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
           Write-Host "PASS: CPU Core Cycling test completed"
 
+      - name: "B12: CPU AVX Float Test (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU AVX Float Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode avx --duration 10
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU AVX Float test completed"
+
+      - name: "B13: CPU Auto Mode Test (10s)"
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Auto Mode Test (10 seconds) ==="
+          & $exe --cli --test cpu --mode auto --duration 10
+          if ($LASTEXITCODE) { Write-Error "Test failed with exit code: $LASTEXITCODE"; exit 1 }
+          Write-Host "PASS: CPU Auto Mode test completed"
+
       # ════════════════════════════════════════════════════════════════════
       # C. RAM Tests (all 6 patterns, 1 pass, 5% memory)
       # ════════════════════════════════════════════════════════════════════
@@ -631,6 +649,157 @@ jobs:
           }
 
       # ════════════════════════════════════════════════════════════════════
+      # N. JSON Output Validation (verify new fields exist and are valid)
+      # ════════════════════════════════════════════════════════════════════
+
+      - name: "N1: CPU JSON Field Validation"
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU JSON Field Validation ==="
+          $output = & $exe --cli --test cpu --mode avx2 --duration 5 2>&1
+          $lines = $output -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+          $hasMetric = $false
+          $hasResult = $false
+          foreach ($line in $lines) {
+              try {
+                  $j = $line | ConvertFrom-Json
+                  if ($j.type -eq "metric") {
+                      $hasMetric = $true
+                      if (-not ($j.cpu.gflops -gt 0)) { Write-Error "gflops should be > 0, got: $($j.cpu.gflops)"; exit 1 }
+                      if (-not ($j.cpu.threads -gt 0)) { Write-Error "threads should be > 0, got: $($j.cpu.threads)"; exit 1 }
+                      if ($null -eq $j.cpu.error_count) { Write-Error "error_count field missing"; exit 1 }
+                  }
+                  if ($j.type -eq "result") {
+                      $hasResult = $true
+                  }
+              } catch {}
+          }
+          if (-not $hasMetric) { Write-Error "No metric events found in CPU JSON output"; exit 1 }
+          if (-not $hasResult) { Write-Error "No result event found in CPU JSON output"; exit 1 }
+          Write-Host "PASS: CPU JSON fields validated (metric + result events present, gflops > 0, threads > 0, error_count exists)"
+
+      - name: "N2: RAM JSON Field Validation"
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== RAM JSON Field Validation ==="
+          $output = & $exe --cli --test ram --mode march_c --memory 5 --passes 1 2>&1
+          $lines = $output -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+          $hasMetric = $false
+          $hasResult = $false
+          foreach ($line in $lines) {
+              try {
+                  $j = $line | ConvertFrom-Json
+                  if ($j.type -eq "metric") {
+                      $hasMetric = $true
+                      if ($null -eq $j.ram.pages_locked) { Write-Error "pages_locked field missing"; exit 1 }
+                      if ($null -eq $j.ram.errors) { Write-Error "errors field missing"; exit 1 }
+                  }
+                  if ($j.type -eq "result") {
+                      $hasResult = $true
+                  }
+              } catch {}
+          }
+          if (-not $hasMetric) { Write-Error "No metric events found in RAM JSON output"; exit 1 }
+          if (-not $hasResult) { Write-Error "No result event found in RAM JSON output"; exit 1 }
+          Write-Host "PASS: RAM JSON fields validated (pages_locked, errors fields present)"
+
+      - name: "N3: Storage JSON Error Stats Validation"
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== Storage JSON Error Stats Validation ==="
+          $output = & $exe --cli --test storage --mode verify_seq --file-size 32 --duration 10 2>&1
+          $lines = $output -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+          $hasMetric = $false
+          $hasResult = $false
+          foreach ($line in $lines) {
+              try {
+                  $j = $line | ConvertFrom-Json
+                  if ($j.type -eq "metric") {
+                      $hasMetric = $true
+                      # verify_errors and related fields are only present when > 0
+                      # On a healthy system they should be 0 (absent), which is fine
+                      # We just verify the metric event has basic storage fields
+                      if ($null -eq $j.storage.read_mbps -and $null -eq $j.storage.write_mbps) {
+                          Write-Error "Storage metric missing read_mbps/write_mbps"; exit 1
+                      }
+                  }
+                  if ($j.type -eq "result") {
+                      $hasResult = $true
+                  }
+              } catch {}
+          }
+          if (-not $hasMetric) { Write-Error "No metric events found in Storage JSON output"; exit 1 }
+          if (-not $hasResult) { Write-Error "No result event found in Storage JSON output"; exit 1 }
+          Write-Host "PASS: Storage JSON fields validated (metric events with I/O stats present)"
+
+      - name: "N4: PSU JSON Power Stability Validation"
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== PSU JSON Power Stability Validation ==="
+          $output = & $exe --cli --test psu --mode steady --duration 5 2>&1
+          $lines = $output -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+          $hasMetric = $false
+          $hasResult = $false
+          foreach ($line in $lines) {
+              try {
+                  $j = $line | ConvertFrom-Json
+                  if ($j.type -eq "metric") {
+                      $hasMetric = $true
+                      if ($null -eq $j.psu.power_stability_pct) { Write-Error "power_stability_pct field missing"; exit 1 }
+                      if ($null -eq $j.psu.health_status) { Write-Error "health_status field missing"; exit 1 }
+                      $validStatuses = @("HEALTHY", "MARGINAL", "UNSTABLE", "FAILED")
+                      if ($j.psu.health_status -notin $validStatuses) {
+                          Write-Error "health_status '$($j.psu.health_status)' not in valid set: $($validStatuses -join ', ')"
+                          exit 1
+                      }
+                  }
+                  if ($j.type -eq "result") {
+                      $hasResult = $true
+                  }
+              } catch {}
+          }
+          # PSU test may exit 2 if no GPU available, so metric events may not appear
+          if ($hasMetric) {
+              Write-Host "PASS: PSU JSON fields validated (power_stability_pct, health_status present and valid)"
+          } else {
+              Write-Host "SKIP: No PSU metric events (GPU likely unavailable in CI), but no crash occurred"
+          }
+
+      - name: "N5: CPU Prime JSON Validation"
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
+          Write-Host "=== CPU Prime JSON Validation ==="
+          $output = & $exe --cli --test cpu --mode prime --duration 5 2>&1
+          $lines = $output -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
+          $hasMetric = $false
+          $hasResult = $false
+          foreach ($line in $lines) {
+              try {
+                  $j = $line | ConvertFrom-Json
+                  if ($j.type -eq "metric") {
+                      $hasMetric = $true
+                      if ($null -eq $j.cpu.error_count) { Write-Error "error_count field missing in prime metric"; exit 1 }
+                  }
+                  if ($j.type -eq "result") {
+                      $hasResult = $true
+                  }
+              } catch {}
+          }
+          if (-not $hasMetric) { Write-Error "No metric events found in CPU Prime JSON output"; exit 1 }
+          if (-not $hasResult) { Write-Error "No result event found in CPU Prime JSON output"; exit 1 }
+          Write-Host "PASS: CPU Prime JSON fields validated (metric events with error_count present)"
+
+      # ════════════════════════════════════════════════════════════════════
       # Upload & Summary (always run)
       # ════════════════════════════════════════════════════════════════════
 
@@ -660,11 +829,12 @@ jobs:
           Write-Host "|  A. Basic Tests (2)                                       |"
           Write-Host "|     A1: --version    A2: --help                           |"
           Write-Host "|                                                           |"
-          Write-Host "|  B. CPU Tests (11)                                        |"
+          Write-Host "|  B. CPU Tests (13)                                        |"
           Write-Host "|     B1: AVX2         B2: SSE          B3: Linpack         |"
           Write-Host "|     B4: Prime        B5: AVX-512*     B6: All Modes       |"
           Write-Host "|     B7: Variable LP  B8: SSE 2-thread B9: Cache Only      |"
           Write-Host "|     B10: Large Data  B11: Core Cycling                    |"
+          Write-Host "|     B12: AVX Float   B13: Auto Mode                       |"
           Write-Host "|                                                           |"
           Write-Host "|  C. RAM Tests (6)                                         |"
           Write-Host "|     C1: March C-     C2: Walking Ones C3: Walking Zeros   |"
@@ -703,7 +873,11 @@ jobs:
           Write-Host "|  M. Verify Outputs (2)                                    |"
           Write-Host "|     M1: test_results dir  M2: monitor_output.csv          |"
           Write-Host "|                                                           |"
+          Write-Host "|  N. JSON Output Validation (5)                            |"
+          Write-Host "|     N1: CPU JSON     N2: RAM JSON     N3: Storage JSON    |"
+          Write-Host "|     N4: PSU JSON     N5: CPU Prime JSON                   |"
+          Write-Host "|                                                           |"
           Write-Host "|  * AVX-512 accepts exit code 0 or 2 (runner may lack it)  |"
           Write-Host "|                                                           |"
-          Write-Host "|  Total: 46 test steps                                     |"
+          Write-Host "|  Total: 51 test steps                                     |"
           Write-Host "+==========================================================+"

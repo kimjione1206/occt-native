@@ -30,7 +30,34 @@
     #define OCCT_USE_AVX2_STREAM 1
 #endif
 
+// Cache flush support — ensure <emmintrin.h> is available for _mm_clflush / _mm_mfence
+#if (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)) && !defined(OCCT_USE_AVX2_STREAM)
+    #include <emmintrin.h>
+#endif
+
 namespace occt {
+
+// ─── Cache flush utility ─────────────────────────────────────────────────────
+// Flush cache lines so that subsequent reads hit DRAM, not L1/L2/L3 cache.
+inline void flush_cache_range(const void* addr, size_t size) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    const char* p = static_cast<const char*>(addr);
+    for (size_t i = 0; i < size; i += 64) {
+        _mm_clflush(p + i);
+    }
+    _mm_mfence();  // ensure all flushes complete before proceeding
+#elif defined(__aarch64__)
+    const char* p = static_cast<const char*>(addr);
+    for (size_t i = 0; i < size; i += 64) {
+        asm volatile("dc civac, %0" : : "r"(p + i) : "memory");
+    }
+    asm volatile("dsb sy" ::: "memory");
+#else
+    // No cache flush available — fall through silently
+    (void)addr;
+    (void)size;
+#endif
+}
 
 // ─── xoshiro256** PRNG (fast, high-quality) ──────────────────────────────────
 
@@ -194,9 +221,10 @@ void RamEngine::run(RamPattern pattern, size_t total_bytes, int passes) {
             }
         }
         if (!locked_pages_) {
-            std::cerr << "[RAM] Warning: VirtualLock failed (error " << err
-                      << "), continuing with unlocked memory. "
-                      << "Results may be less accurate due to paging." << std::endl;
+            std::cerr << "[RAM] WARNING: VirtualLock failed (error " << err
+                      << "), continuing with unlocked memory.\n"
+                      << "[RAM] Memory lock failure - test results may have reduced reliability.\n"
+                      << "[RAM] Pages may be swapped to disk, masking real DRAM errors." << std::endl;
         }
     } else {
         locked_pages_ = true;
@@ -214,8 +242,9 @@ void RamEngine::run(RamPattern pattern, size_t total_bytes, int passes) {
     if (mlock(buffer, total_bytes) == 0) {
         locked_pages_ = true;
     } else {
-        std::cerr << "[RAM] Warning: mlock failed, continuing with unlocked memory. "
-                  << "Results may be less accurate due to paging." << std::endl;
+        std::cerr << "[RAM] WARNING: mlock failed, continuing with unlocked memory.\n"
+                  << "[RAM] Memory lock failure - test results may have reduced reliability.\n"
+                  << "[RAM] Pages may be swapped to disk, masking real DRAM errors." << std::endl;
     }
 #endif
 
@@ -295,6 +324,7 @@ void RamEngine::march_c_minus(uint8_t* buf, size_t size) {
         p[i] = 0ULL;
     }
     bytes_processed += size;
+    flush_cache_range(buf, size);
 
     // Phase 2: Read 0 / Write 1 (ascending)
     for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
@@ -302,6 +332,7 @@ void RamEngine::march_c_minus(uint8_t* buf, size_t size) {
         p[i] = ~0ULL;
     }
     bytes_processed += size * 2; // read + write
+    flush_cache_range(buf, size);
 
     // Phase 3: Read 1 / Write 0 (ascending)
     for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
@@ -309,6 +340,7 @@ void RamEngine::march_c_minus(uint8_t* buf, size_t size) {
         p[i] = 0ULL;
     }
     bytes_processed += size * 2;
+    flush_cache_range(buf, size);
 
     // Phase 4: Read 0 / Write 1 (descending)
     for (size_t idx = count; idx > 0 && !stop_requested_.load(); --idx) {
@@ -317,6 +349,7 @@ void RamEngine::march_c_minus(uint8_t* buf, size_t size) {
         p[i] = ~0ULL;
     }
     bytes_processed += size * 2;
+    flush_cache_range(buf, size);
 
     // Phase 5: Read 1 / Write 0 (descending)
     for (size_t idx = count; idx > 0 && !stop_requested_.load(); --idx) {
@@ -325,6 +358,7 @@ void RamEngine::march_c_minus(uint8_t* buf, size_t size) {
         p[i] = 0ULL;
     }
     bytes_processed += size * 2;
+    flush_cache_range(buf, size);
 
     // Phase 6: Read 0 (verify)
     for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
@@ -356,6 +390,7 @@ void RamEngine::walking_ones(uint8_t* buf, size_t size) {
             p[i] = pattern;
         }
         bytes_processed += size;
+        flush_cache_range(buf, size);
 
         // Verify pattern
         for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
@@ -387,6 +422,7 @@ void RamEngine::walking_zeros(uint8_t* buf, size_t size) {
             p[i] = pattern;
         }
         bytes_processed += size;
+        flush_cache_range(buf, size);
 
         for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
             if (p[i] != pattern) report_error(i * 8, pattern, p[i]);
@@ -410,28 +446,36 @@ void RamEngine::checkerboard(uint8_t* buf, size_t size) {
     auto start = std::chrono::steady_clock::now();
     size_t bytes_processed = 0;
 
-    // 0xAAAAAAAAAAAAAAAA pattern
+    // Complementary checkerboard: adjacent addresses get inverted patterns
+    // to detect address-coupling faults between neighboring cells.
     const uint64_t pat_a = 0xAAAAAAAAAAAAAAAAULL;
     const uint64_t pat_b = 0x5555555555555555ULL;
 
-    // Pass 1: write pattern A, verify, write pattern B, verify
+    // Pass 1: write complementary pattern (even=A, odd=B)
     for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
-        p[i] = pat_a;
+        p[i] = (i % 2 == 0) ? pat_a : pat_b;
+    }
+    bytes_processed += size;
+    flush_cache_range(buf, size);
+
+    // Verify pass 1
+    for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
+        uint64_t expected = (i % 2 == 0) ? pat_a : pat_b;
+        if (p[i] != expected) report_error(i * 8, expected, p[i]);
     }
     bytes_processed += size;
 
+    // Pass 2: write inverted complementary pattern (even=B, odd=A)
     for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
-        if (p[i] != pat_a) report_error(i * 8, pat_a, p[i]);
+        p[i] = (i % 2 == 0) ? pat_b : pat_a;
     }
     bytes_processed += size;
+    flush_cache_range(buf, size);
 
+    // Verify pass 2
     for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
-        p[i] = pat_b;
-    }
-    bytes_processed += size;
-
-    for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
-        if (p[i] != pat_b) report_error(i * 8, pat_b, p[i]);
+        uint64_t expected = (i % 2 == 0) ? pat_b : pat_a;
+        if (p[i] != expected) report_error(i * 8, expected, p[i]);
     }
     bytes_processed += size;
 
@@ -464,6 +508,7 @@ void RamEngine::random_pattern(uint8_t* buf, size_t size) {
         p[i] = rng_write.next();
     }
     bytes_processed += size;
+    flush_cache_range(buf, size);
 
     // Verify with same sequence
     Xoshiro256 rng_verify;
@@ -504,16 +549,16 @@ void RamEngine::bandwidth_test(uint8_t* buf, size_t size) {
         _mm_sfence();
         bytes_processed += avx_count * 32;
 
-        // Read pass (regular load; there's no streaming load on x86)
-        volatile uint64_t sink = 0;
-        auto* src = reinterpret_cast<const __m256i*>(buf);
-        for (size_t i = 0; i < avx_count && !stop_requested_.load(); ++i) {
-            __m256i data = _mm256_load_si256(&src[i]);
-            // Prevent optimization
-            sink += static_cast<uint64_t>(_mm256_extract_epi64(data, 0));
+        // Read pass with verification
+        const uint64_t bw_expected = 0xDEADBEEFCAFEBABEULL;
+        const size_t word_count = avx_count * 4; // 4 x uint64_t per __m256i
+        auto* p_verify = reinterpret_cast<const uint64_t*>(buf);
+        for (size_t i = 0; i < word_count && !stop_requested_.load(); ++i) {
+            if (p_verify[i] != bw_expected) {
+                report_error(i * 8, bw_expected, p_verify[i]);
+            }
         }
         bytes_processed += avx_count * 32;
-        (void)sink;
     } else
 #endif
     {
@@ -527,13 +572,14 @@ void RamEngine::bandwidth_test(uint8_t* buf, size_t size) {
         }
         bytes_processed += size;
 
-        // Read pass
-        volatile uint64_t sink = 0;
+        // Read pass with verification
+        const uint64_t bw_pattern = 0xDEADBEEFCAFEBABEULL;
         for (size_t i = 0; i < count && !stop_requested_.load(); ++i) {
-            sink += p[i];
+            if (p[i] != bw_pattern) {
+                report_error(i * 8, bw_pattern, p[i]);
+            }
         }
         bytes_processed += size;
-        (void)sink;
     }
 
     auto elapsed = std::chrono::steady_clock::now() - start;
@@ -550,17 +596,31 @@ void RamEngine::report_error(uint64_t address, uint64_t expected, uint64_t actua
     auto now = std::chrono::steady_clock::now();
     double timestamp = std::chrono::duration<double>(now - test_start_time_).count();
 
+    uint64_t bit_diff = expected ^ actual;
+    // Count flipped bits — use __builtin_popcountll where available
+#if defined(__GNUC__) || defined(__clang__)
+    int flipped_bits = __builtin_popcountll(bit_diff);
+#elif defined(_MSC_VER)
+    int flipped_bits = static_cast<int>(__popcnt64(bit_diff));
+#else
+    // Portable fallback
+    int flipped_bits = 0;
+    for (uint64_t v = bit_diff; v; v &= v - 1) ++flipped_bits;
+#endif
+
     std::lock_guard<std::mutex> lk(metrics_mutex_);
     metrics_.errors_found++;
 
     if (metrics_.error_log.size() < 1000) {
-        metrics_.error_log.push_back({address, expected, actual, timestamp});
+        metrics_.error_log.push_back({address, expected, actual, bit_diff, flipped_bits, timestamp});
     }
 
     std::cerr << "[RAM] Error at offset 0x" << std::hex << address
               << ": expected 0x" << expected
               << ", actual 0x" << actual
-              << std::dec << " (t=" << timestamp << "s)" << std::endl;
+              << ", bit_diff 0x" << bit_diff
+              << std::dec << " (" << flipped_bits << " bit(s) flipped)"
+              << " (t=" << timestamp << "s)" << std::endl;
 
     if (stop_on_error()) {
         stop_requested_.store(true);

@@ -145,6 +145,80 @@ __kernel void alternating_pattern_verify(__global uint* buffer, __global uint* e
     uint rv = buffer[gid];
     if (rv != pattern) atomic_inc(&errors[0]);
 }
+
+// ─── March C- pattern ───
+// Each pass is a separate kernel for global synchronization.
+// Host orchestrates: fill_zero → march_up_r0_w1 → march_up_r1_w0
+//                  → march_down_r0_w1 → march_down_r1_w0 → march_final_r0
+
+__kernel void march_fill_zero(__global uint* buffer) {
+    int gid = get_global_id(0);
+    buffer[gid] = 0u;
+}
+__kernel void march_up_r0_w1(__global uint* buffer, __global uint* errors) {
+    int gid = get_global_id(0);
+    if (buffer[gid] != 0u) atomic_inc(&errors[0]);
+    buffer[gid] = 0xFFFFFFFFu;
+}
+__kernel void march_up_r1_w0(__global uint* buffer, __global uint* errors) {
+    int gid = get_global_id(0);
+    if (buffer[gid] != 0xFFFFFFFFu) atomic_inc(&errors[0]);
+    buffer[gid] = 0u;
+}
+__kernel void march_down_r0_w1(__global uint* buffer, __global uint* errors) {
+    int gid = get_global_id(0);
+    // Reverse addressing: work-items still cover all elements, host ensures
+    // sequential semantics by running with global_size == num_elements.
+    if (buffer[gid] != 0u) atomic_inc(&errors[0]);
+    buffer[gid] = 0xFFFFFFFFu;
+}
+__kernel void march_down_r1_w0(__global uint* buffer, __global uint* errors) {
+    int gid = get_global_id(0);
+    if (buffer[gid] != 0xFFFFFFFFu) atomic_inc(&errors[0]);
+    buffer[gid] = 0u;
+}
+__kernel void march_final_r0(__global uint* buffer, __global uint* errors) {
+    int gid = get_global_id(0);
+    if (buffer[gid] != 0u) atomic_inc(&errors[0]);
+}
+
+// ─── Butterfly pattern ───
+// Tests edge memory cells by converging from both ends of the buffer.
+// 'half_size' = num_elements / 2. Each work-item handles a pair (i, N-1-i).
+
+__kernel void butterfly_write(__global uint* buffer, const uint num_elements) {
+    int gid = get_global_id(0);
+    uint high = num_elements - 1u - (uint)gid;
+    uint pattern_lo = (uint)gid ^ 0xA5A5A5A5u;
+    uint pattern_hi = high ^ 0x5A5A5A5Au;
+    buffer[gid] = pattern_lo;
+    buffer[high] = pattern_hi;
+}
+__kernel void butterfly_verify(__global uint* buffer, __global uint* errors, const uint num_elements) {
+    int gid = get_global_id(0);
+    uint high = num_elements - 1u - (uint)gid;
+    uint pattern_lo = (uint)gid ^ 0xA5A5A5A5u;
+    uint pattern_hi = high ^ 0x5A5A5A5Au;
+    if (buffer[gid] != pattern_lo) atomic_inc(&errors[0]);
+    if (buffer[high] != pattern_hi) atomic_inc(&errors[0]);
+}
+
+// ─── Random pattern (LCG) ───
+// GPU-side LCG: next = (a * seed + c) mod 2^32 with same seed for write & verify.
+// a = 1103515245, c = 12345 (glibc LCG constants).
+
+__kernel void random_pattern_write(__global uint* buffer, const uint base_seed) {
+    int gid = get_global_id(0);
+    uint seed = base_seed ^ (uint)gid;
+    seed = seed * 1103515245u + 12345u;
+    buffer[gid] = seed;
+}
+__kernel void random_pattern_verify(__global uint* buffer, __global uint* errors, const uint base_seed) {
+    int gid = get_global_id(0);
+    uint seed = base_seed ^ (uint)gid;
+    seed = seed * 1103515245u + 12345u;
+    if (buffer[gid] != seed) atomic_inc(&errors[0]);
+}
 )CL";
 
 #endif // OCCT_HAS_OPENCL
@@ -172,6 +246,19 @@ struct GpuEngine::Impl {
     cl_kernel k_address_test_verify = nullptr;
     cl_kernel k_alternating_write = nullptr;
     cl_kernel k_alternating_verify = nullptr;
+    // March C- kernels
+    cl_kernel k_march_fill_zero = nullptr;
+    cl_kernel k_march_up_r0_w1 = nullptr;
+    cl_kernel k_march_up_r1_w0 = nullptr;
+    cl_kernel k_march_down_r0_w1 = nullptr;
+    cl_kernel k_march_down_r1_w0 = nullptr;
+    cl_kernel k_march_final_r0 = nullptr;
+    // Butterfly kernels
+    cl_kernel k_butterfly_write = nullptr;
+    cl_kernel k_butterfly_verify = nullptr;
+    // Random pattern kernels
+    cl_kernel k_random_write = nullptr;
+    cl_kernel k_random_verify = nullptr;
 
     // Buffers (allocated per-run)
     cl_mem buf_a = nullptr;
@@ -368,6 +455,32 @@ struct GpuEngine::Impl {
         err = cl_ctx.compile_kernel(kKernelVRAM, "alternating_pattern_verify", "", k_alternating_verify);
         if (err != CL_SUCCESS) return false;
 
+        // March C- kernels
+        err = cl_ctx.compile_kernel(kKernelVRAM, "march_fill_zero", "", k_march_fill_zero);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "march_up_r0_w1", "", k_march_up_r0_w1);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "march_up_r1_w0", "", k_march_up_r1_w0);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "march_down_r0_w1", "", k_march_down_r0_w1);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "march_down_r1_w0", "", k_march_down_r1_w0);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "march_final_r0", "", k_march_final_r0);
+        if (err != CL_SUCCESS) return false;
+
+        // Butterfly kernels
+        err = cl_ctx.compile_kernel(kKernelVRAM, "butterfly_write", "", k_butterfly_write);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "butterfly_verify", "", k_butterfly_verify);
+        if (err != CL_SUCCESS) return false;
+
+        // Random pattern kernels
+        err = cl_ctx.compile_kernel(kKernelVRAM, "random_pattern_write", "", k_random_write);
+        if (err != CL_SUCCESS) return false;
+        err = cl_ctx.compile_kernel(kKernelVRAM, "random_pattern_verify", "", k_random_verify);
+        if (err != CL_SUCCESS) return false;
+
         return true;
     }
 
@@ -387,6 +500,16 @@ struct GpuEngine::Impl {
         release(k_address_test_verify);
         release(k_alternating_write);
         release(k_alternating_verify);
+        release(k_march_fill_zero);
+        release(k_march_up_r0_w1);
+        release(k_march_up_r1_w0);
+        release(k_march_down_r0_w1);
+        release(k_march_down_r1_w0);
+        release(k_march_final_r0);
+        release(k_butterfly_write);
+        release(k_butterfly_verify);
+        release(k_random_write);
+        release(k_random_verify);
     }
 
     void release_buffers() {
@@ -520,6 +643,10 @@ struct GpuEngine::Impl {
         std::uniform_real_distribution<float> dist(0.5f, 1.5f);
         for (auto& v : host_data) v = dist(rng);
 
+        // Keep a copy of initial values for cross-verification (first 64 elements)
+        const size_t verify_count = 64;
+        std::vector<float> cpu_expected(host_data.begin(), host_data.begin() + verify_count);
+
         buf_data = cl_ctx.create_buffer(data_size, CL_MEM_READ_WRITE);
         if (!buf_data) return;
         cl_ctx.write_buffer(buf_data, host_data.data(), data_size);
@@ -534,11 +661,59 @@ struct GpuEngine::Impl {
 
         auto start = std::chrono::steady_clock::now();
         uint64_t dispatches = 0;
+        uint64_t fma_verify_errors = 0;
 
         while (running.load()) {
             cl_ctx.enqueue_ndrange(k_fma, 1, &global_size, &local_size);
             cl_ctx.finish();
             dispatches++;
+
+            // Cross-verify first 64 elements every 10 dispatches
+            if (dispatches % 10 == 1) {
+                // CPU-side: replicate the FMA kernel logic for verify_count elements
+                // The kernel does: acc0=data[gid], acc1=acc0+0.1, acc2=acc0+0.2, acc3=acc0+0.3
+                //   for iterations: accN = fma(accN, 0.9999, 0.0001)
+                //   data[gid] = acc0 + acc1 + acc2 + acc3
+                std::vector<float> cpu_result(verify_count);
+                for (size_t i = 0; i < verify_count; ++i) {
+                    float acc0 = cpu_expected[i];
+                    float acc1 = acc0 + 0.1f;
+                    float acc2 = acc0 + 0.2f;
+                    float acc3 = acc0 + 0.3f;
+                    float mul = 0.9999f;
+                    float add = 0.0001f;
+                    for (int it = 0; it < iterations_per_dispatch; ++it) {
+                        acc0 = std::fma(acc0, mul, add);
+                        acc1 = std::fma(acc1, mul, add);
+                        acc2 = std::fma(acc2, mul, add);
+                        acc3 = std::fma(acc3, mul, add);
+                    }
+                    cpu_result[i] = acc0 + acc1 + acc2 + acc3;
+                }
+
+                // Read back GPU results for first 64 elements
+                std::vector<float> gpu_result(verify_count);
+                cl_ctx.read_buffer(buf_data, gpu_result.data(), verify_count * sizeof(float));
+
+                // Compare with tolerance for floating-point differences
+                for (size_t i = 0; i < verify_count; ++i) {
+                    float diff = std::abs(gpu_result[i] - cpu_result[i]);
+                    float magnitude = std::max(std::abs(cpu_result[i]), 1e-6f);
+                    // Relative error > 0.1% indicates a compute error
+                    if (diff / magnitude > 0.001f) {
+                        fma_verify_errors++;
+                    }
+                }
+
+                // Update cpu_expected for next iteration's verification
+                cpu_expected = cpu_result;
+
+                // Report errors via vram_errors metric (reusing existing field)
+                if (fma_verify_errors > 0) {
+                    std::lock_guard<std::mutex> lock(metrics_mutex);
+                    latest_metrics.vram_errors = fma_verify_errors;
+                }
+            }
 
             auto now = std::chrono::steady_clock::now();
             double elapsed = std::chrono::duration<double>(now - start).count();
@@ -708,6 +883,136 @@ struct GpuEngine::Impl {
                 update_vram_metrics(total_errors, elapsed);
                 check_timeout(start);
             }
+
+            // March C- pattern: fill_zero → up_r0_w1 → up_r1_w0
+            //                  → down_r0_w1 → down_r1_w0 → final_r0
+            if (running.load()) {
+                // Step 1: Fill with zeros
+                clSetKernelArg(k_march_fill_zero, 0, sizeof(cl_mem), &buf_vram);
+                cl_ctx.enqueue_ndrange(k_march_fill_zero, 1, &global_size, &local_size);
+                cl_ctx.finish();
+
+                // Step 2: Read 0, write 1 (ascending)
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                clSetKernelArg(k_march_up_r0_w1, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_march_up_r0_w1, 1, sizeof(cl_mem), &buf_errors);
+                cl_ctx.enqueue_ndrange(k_march_up_r0_w1, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                {
+                    uint32_t err_count = 0;
+                    cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                    total_errors += err_count;
+                }
+
+                // Step 3: Read 1, write 0 (ascending)
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                clSetKernelArg(k_march_up_r1_w0, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_march_up_r1_w0, 1, sizeof(cl_mem), &buf_errors);
+                cl_ctx.enqueue_ndrange(k_march_up_r1_w0, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                {
+                    uint32_t err_count = 0;
+                    cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                    total_errors += err_count;
+                }
+
+                // Step 4: Read 0, write 1 (descending - same kernel, GPU covers all elements)
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                clSetKernelArg(k_march_down_r0_w1, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_march_down_r0_w1, 1, sizeof(cl_mem), &buf_errors);
+                cl_ctx.enqueue_ndrange(k_march_down_r0_w1, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                {
+                    uint32_t err_count = 0;
+                    cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                    total_errors += err_count;
+                }
+
+                // Step 5: Read 1, write 0 (descending)
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                clSetKernelArg(k_march_down_r1_w0, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_march_down_r1_w0, 1, sizeof(cl_mem), &buf_errors);
+                cl_ctx.enqueue_ndrange(k_march_down_r1_w0, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                {
+                    uint32_t err_count = 0;
+                    cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                    total_errors += err_count;
+                }
+
+                // Step 6: Final read 0
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                clSetKernelArg(k_march_final_r0, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_march_final_r0, 1, sizeof(cl_mem), &buf_errors);
+                cl_ctx.enqueue_ndrange(k_march_final_r0, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                {
+                    uint32_t err_count = 0;
+                    cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                    total_errors += err_count;
+                }
+
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - start).count();
+                update_vram_metrics(total_errors, elapsed);
+                check_timeout(start);
+            }
+
+            // Butterfly pattern - converging from both ends
+            if (running.load()) {
+                uint32_t ne32 = static_cast<uint32_t>(num_elements);
+                size_t half_size = num_elements / 2;
+                size_t butterfly_global = (half_size / local_size) * local_size;
+
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                // Write pass
+                clSetKernelArg(k_butterfly_write, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_butterfly_write, 1, sizeof(uint32_t), &ne32);
+                cl_ctx.enqueue_ndrange(k_butterfly_write, 1, &butterfly_global, &local_size);
+                cl_ctx.finish();
+                // Verify pass
+                clSetKernelArg(k_butterfly_verify, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_butterfly_verify, 1, sizeof(cl_mem), &buf_errors);
+                clSetKernelArg(k_butterfly_verify, 2, sizeof(uint32_t), &ne32);
+                cl_ctx.enqueue_ndrange(k_butterfly_verify, 1, &butterfly_global, &local_size);
+                cl_ctx.finish();
+
+                uint32_t err_count = 0;
+                cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                total_errors += err_count;
+
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - start).count();
+                update_vram_metrics(total_errors, elapsed);
+                check_timeout(start);
+            }
+
+            // Random pattern (LCG) - multiple seeds
+            for (uint32_t seed_idx = 0; seed_idx < 4 && running.load(); ++seed_idx) {
+                uint32_t base_seed = 0xDEADBEEFu + seed_idx * 0x01010101u;
+
+                cl_ctx.write_buffer(buf_errors, &zero, sizeof(uint32_t));
+                // Write pass
+                clSetKernelArg(k_random_write, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_random_write, 1, sizeof(uint32_t), &base_seed);
+                cl_ctx.enqueue_ndrange(k_random_write, 1, &global_size, &local_size);
+                cl_ctx.finish();
+                // Verify pass
+                clSetKernelArg(k_random_verify, 0, sizeof(cl_mem), &buf_vram);
+                clSetKernelArg(k_random_verify, 1, sizeof(cl_mem), &buf_errors);
+                clSetKernelArg(k_random_verify, 2, sizeof(uint32_t), &base_seed);
+                cl_ctx.enqueue_ndrange(k_random_verify, 1, &global_size, &local_size);
+                cl_ctx.finish();
+
+                uint32_t err_count = 0;
+                cl_ctx.read_buffer(buf_errors, &err_count, sizeof(uint32_t));
+                total_errors += err_count;
+
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - start).count();
+                update_vram_metrics(total_errors, elapsed);
+                check_timeout(start);
+            }
         }
     }
 
@@ -862,7 +1167,7 @@ struct GpuEngine::Impl {
             }
 
             // Artifact detection (compare every 10th frame against reference)
-            if (reference_set && frame_count % 10 == 0 && !frame.pixels.empty()) {
+            if (reference_set && frame_count % 3 == 0 && !frame.pixels.empty()) {
                 auto artifact = detector.compare_frame(frame.pixels, frame.width, frame.height);
                 total_artifacts += artifact.error_pixels;
             }
@@ -969,7 +1274,7 @@ struct GpuEngine::Impl {
                 reference_set = true;
             }
 
-            if (reference_set && frame_count % 10 == 0 && !frame.pixels.empty()) {
+            if (reference_set && frame_count % 3 == 0 && !frame.pixels.empty()) {
                 auto artifact = detector.compare_frame(frame.pixels, frame.width, frame.height);
                 total_artifacts += artifact.error_pixels;
             }

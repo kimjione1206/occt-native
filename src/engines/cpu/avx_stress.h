@@ -16,6 +16,21 @@ uint64_t stress_sse(uint64_t duration_ns);
 uint64_t stress_avx2(uint64_t duration_ns);
 uint64_t stress_avx512(uint64_t duration_ns);
 
+// 다중 시드로 피연산자 의존적 에러 검출
+struct VerifySeedSet {
+    double seed;
+    double mul;
+    double add;
+};
+
+static constexpr VerifySeedSet VERIFY_SEEDS[] = {
+    {1.0, 0.9999999999, 0.0000000001},           // 기존 시드
+    {0.5, 1.0000000001, -0.0000000001},           // 음수 가산
+    {3.141592653589793, 0.9999999997, 0.0000000003}, // 파이 기반
+    {2.718281828459045, 1.0000000003, -0.0000000003}, // 자연상수 기반
+};
+static constexpr int VERIFY_SEED_COUNT = 4;
+
 // Verification result from stress_and_verify functions
 struct VerifyResult {
     uint64_t ops = 0;          // Number of operations executed

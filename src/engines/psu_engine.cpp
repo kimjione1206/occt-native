@@ -31,6 +31,15 @@ void PsuEngine::start(PsuLoadPattern pattern, int duration_secs) {
         current_metrics_ = PsuMetrics{};
     }
 
+    // Reset power correlation tracking state
+    prev_total_power_ = 0.0;
+    power_sum_ = 0.0;
+    power_sample_count_ = 0;
+    power_min_ = 1e9;
+    power_max_ = 0.0;
+    prev_total_errors_ = 0;
+    recent_power_drop_ = false;
+
     // Start metrics polling thread
     metrics_thread_ = std::thread(&PsuEngine::metrics_poller_func, this);
 
@@ -206,6 +215,9 @@ void PsuEngine::metrics_poller_func() {
         CpuMetrics cpu_m = cpu_.get_metrics();
         GpuMetrics gpu_m = gpu_.get_metrics();
 
+        double current_power = cpu_m.power_watts + gpu_m.power_watts;
+        int current_total_errors = cpu_m.error_count + static_cast<int>(gpu_m.vram_errors);
+
         {
             std::lock_guard<std::mutex> lk(metrics_mutex_);
             current_metrics_.elapsed_secs = elapsed;
@@ -213,10 +225,75 @@ void PsuEngine::metrics_poller_func() {
             current_metrics_.gpu_running = gpu_.is_running();
             current_metrics_.cpu_power_watts = cpu_m.power_watts;
             current_metrics_.gpu_power_watts = gpu_m.power_watts;
-            current_metrics_.total_power_watts = cpu_m.power_watts + gpu_m.power_watts;
+            current_metrics_.total_power_watts = current_power;
             // Error counting is cumulative
             current_metrics_.errors_cpu = cpu_m.error_count;
             current_metrics_.errors_gpu = static_cast<int>(gpu_m.vram_errors);
+
+            // ─── 전력-에러 상관분석 ─────────────────────────────────
+            // Track power statistics
+            if (current_power > 0.0) {
+                power_sum_ += current_power;
+                power_sample_count_++;
+                if (current_power < power_min_) power_min_ = current_power;
+                if (current_power > power_max_) power_max_ = current_power;
+            }
+
+            // Detect power drop (> 10% compared to previous reading)
+            if (prev_total_power_ > 0.0 && current_power > 0.0) {
+                double drop = prev_total_power_ - current_power;
+                double drop_pct = drop / prev_total_power_;
+
+                if (drop_pct > 0.10) {
+                    current_metrics_.power_drop_events++;
+                    last_power_drop_time_ = now;
+                    recent_power_drop_ = true;
+
+                    if (drop > current_metrics_.max_power_drop_watts) {
+                        current_metrics_.max_power_drop_watts = drop;
+                    }
+                }
+            }
+
+            // Check for correlated errors: new errors within 1 second of power drop
+            if (recent_power_drop_ && current_total_errors > prev_total_errors_) {
+                auto since_drop = std::chrono::duration<double>(now - last_power_drop_time_).count();
+                if (since_drop <= 1.0) {
+                    current_metrics_.power_correlated_errors = true;
+                }
+            }
+
+            // Clear recent_power_drop flag after 1 second window
+            if (recent_power_drop_) {
+                auto since_drop = std::chrono::duration<double>(now - last_power_drop_time_).count();
+                if (since_drop > 1.0) {
+                    recent_power_drop_ = false;
+                }
+            }
+
+            // Calculate power stability percentage
+            if (power_sample_count_ > 1) {
+                double avg_power = power_sum_ / power_sample_count_;
+                if (avg_power > 0.0) {
+                    double variation = power_max_ - power_min_;
+                    double stability = 100.0 - (variation / avg_power * 100.0);
+                    current_metrics_.power_stability_pct = (stability < 0.0) ? 0.0 : stability;
+                }
+            }
+
+            // ─── PSU 상태 판정 ──────────────────────────────────────
+            if (!current_metrics_.cpu_running && !current_metrics_.gpu_running && elapsed > 1.0) {
+                current_metrics_.health = PsuHealthStatus::FAILED;
+            } else if (current_metrics_.power_correlated_errors) {
+                current_metrics_.health = PsuHealthStatus::UNSTABLE;
+            } else if (current_metrics_.power_drop_events > 5) {
+                current_metrics_.health = PsuHealthStatus::MARGINAL;
+            } else {
+                current_metrics_.health = PsuHealthStatus::HEALTHY;
+            }
+
+            prev_total_power_ = current_power;
+            prev_total_errors_ = current_total_errors;
         }
 
         if (stop_on_error() && (cpu_m.error_count > 0 || gpu_m.vram_errors > 0)) {

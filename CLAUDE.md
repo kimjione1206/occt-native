@@ -15,7 +15,7 @@
 |------|------|
 | **Windows 우선** | 주 타겟. macOS/Linux는 `#ifdef Q_OS_WIN/MACOS/LINUX` 분기 |
 | **오류 검출 목적** | CPU: FMA 비트비교, GPU: Artifact, RAM: 패턴비교, Storage: CRC32C |
-| **CI가 빌드/테스트** | GitHub 푸시 → Actions 자동 빌드+46개 테스트 |
+| **CI가 빌드/테스트** | GitHub 푸시 → Actions 자동 빌드+51개 테스트 |
 
 ## 모드/기능 추가 시 반드시 5곳 수정
 

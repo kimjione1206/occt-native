@@ -245,7 +245,7 @@ intptr_t StorageEngine::open_direct(const std::string& path, bool read_only) {
     }
 
 #if defined(__linux__)
-    flags_val |= O_DIRECT;
+    flags_val |= O_DIRECT | O_SYNC;
 #endif
     int fd = open(path.c_str(), flags_val, 0644);
 
@@ -254,13 +254,13 @@ intptr_t StorageEngine::open_direct(const std::string& path, bool read_only) {
         // O_DIRECT may fail on some filesystems (tmpfs, USB drives, etc.)
         std::cerr << "[Storage] Warning: O_DIRECT not supported, "
                   << "falling back to buffered I/O" << std::endl;
-        flags_val &= ~O_DIRECT;
+        flags_val &= ~(O_DIRECT | O_SYNC);
         fd = open(path.c_str(), flags_val, 0644);
         if (fd >= 0) {
             std::cerr << "[Storage] Active mode: buffered I/O" << std::endl;
         }
     } else if (fd >= 0) {
-        std::cerr << "[Storage] Active mode: direct I/O (O_DIRECT)" << std::endl;
+        std::cerr << "[Storage] Active mode: direct I/O (O_DIRECT | O_SYNC)" << std::endl;
     }
 #endif
 

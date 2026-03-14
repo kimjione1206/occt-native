@@ -5,11 +5,11 @@
 #include "../utils/cpuid.h"
 #include "../monitor/sensor_manager.h"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <random>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -239,6 +239,23 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
         }
     }
 
+    // Compute XOR-rotate checksum for buffer integrity verification (bitflip detection)
+    auto compute_buffer_checksum = [](const void* data, size_t size) -> uint64_t {
+        const uint64_t* p = static_cast<const uint64_t*>(data);
+        uint64_t sum = 0;
+        for (size_t i = 0; i < size / 8; ++i) {
+            sum ^= p[i];
+            sum = (sum << 13) | (sum >> 51); // rotate
+        }
+        return sum;
+    };
+
+    // Record initial checksum for cache buffer after initialization
+    uint64_t cache_expected_checksum = 0;
+    if (mode_ == CpuStressMode::CACHE_ONLY) {
+        cache_expected_checksum = compute_buffer_checksum(cache_buf.data(), cache_buf_size);
+    }
+
     const size_t large_buf_size = 256 * 1024 * 1024; // 256MB
     const size_t large_num_doubles = large_buf_size / sizeof(double);
     std::vector<double> large_buf;
@@ -247,6 +264,12 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
         for (size_t i = 0; i < large_num_doubles; ++i) {
             large_buf[i] = static_cast<double>(i % 1000 + 1) * 0.001;
         }
+    }
+
+    // Record initial checksum for large buffer after initialization
+    uint64_t large_expected_checksum = 0;
+    if (mode_ == CpuStressMode::LARGE_DATA_SET) {
+        large_expected_checksum = compute_buffer_checksum(large_buf.data(), large_buf_size);
     }
 
     while (running_.load(std::memory_order_relaxed)) {
@@ -276,7 +299,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
         if (intensity_mode_ == CpuIntensityMode::NORMAL) {
             do_verify = true;  // Verify every batch for maximum error detection
         } else {
-            do_verify = (batch_count % 10 == 0);
+            // EXTREME mode: 10% random sampling instead of fixed interval
+            // This prevents errors that only appear on specific batches from being missed
+            thread_local std::mt19937 rng(std::random_device{}());
+            do_verify = (std::uniform_int_distribution<>(0, 9)(rng) == 0);
         }
 
         switch (mode_) {
@@ -416,7 +442,26 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
             break;
 
         case CpuStressMode::PRIME:
-            ops = cpu::stress_prime(batch_ns);
+            if (do_verify) {
+                cpu::PrimeStressResult psr = cpu::stress_prime_verified(batch_ns);
+                ops = psr.ops;
+                if (!psr.verified) {
+                    auto now = std::chrono::steady_clock::now();
+                    uint64_t ts_ms = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                    const auto& vr = !psr.mr_verify.passed ? psr.mr_verify : psr.ll_verify;
+                    double exp_val = vr.expected_prime ? 1.0 : 0.0;
+                    double act_val = vr.got_prime ? 1.0 : 0.0;
+                    error_verifier_.verify(core_id, exp_val, act_val, ts_ms);
+                    core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
+                }
+            } else {
+                ops = cpu::stress_prime(batch_ns);
+            }
             break;
 
         case CpuStressMode::CACHE_ONLY: {
@@ -454,6 +499,26 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                         break;
                     }
                 }
+            }
+
+            // Checksum verification: detect bitflips in buffer
+            {
+                uint64_t actual_checksum = compute_buffer_checksum(cache_buf.data(), cache_buf_size);
+                if (actual_checksum != cache_expected_checksum) {
+                    auto now = std::chrono::steady_clock::now();
+                    uint64_t ts_ms = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                    error_verifier_.verify(core_id,
+                        static_cast<double>(cache_expected_checksum),
+                        static_cast<double>(actual_checksum), ts_ms);
+                    core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
+                }
+                // Update expected checksum for next batch (buffer changes deterministically)
+                cache_expected_checksum = actual_checksum;
             }
 
             ops = local_ops;
@@ -496,6 +561,26 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                         break;
                     }
                 }
+            }
+
+            // Checksum verification: detect bitflips in buffer
+            {
+                uint64_t actual_checksum = compute_buffer_checksum(large_buf.data(), large_buf_size);
+                if (actual_checksum != large_expected_checksum) {
+                    auto now = std::chrono::steady_clock::now();
+                    uint64_t ts_ms = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                    error_verifier_.verify(core_id,
+                        static_cast<double>(large_expected_checksum),
+                        static_cast<double>(actual_checksum), ts_ms);
+                    core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
+                }
+                // Update expected checksum for next batch (buffer changes deterministically)
+                large_expected_checksum = actual_checksum;
             }
 
             ops = local_ops;
@@ -577,7 +662,26 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                 }
                 break;
             case 3:
-                ops = cpu::stress_prime(batch_ns);
+                if (do_verify) {
+                    cpu::PrimeStressResult psr = cpu::stress_prime_verified(batch_ns);
+                    ops = psr.ops;
+                    if (!psr.verified) {
+                        auto now = std::chrono::steady_clock::now();
+                        uint64_t ts_ms = static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                        const auto& vr = !psr.mr_verify.passed ? psr.mr_verify : psr.ll_verify;
+                        double exp_val = vr.expected_prime ? 1.0 : 0.0;
+                        double act_val = vr.got_prime ? 1.0 : 0.0;
+                        error_verifier_.verify(core_id, exp_val, act_val, ts_ms);
+                        core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                        core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                        if (stop_on_error_) {
+                            running_.store(false, std::memory_order_relaxed);
+                        }
+                    }
+                } else {
+                    ops = cpu::stress_prime(batch_ns);
+                }
                 break;
             }
             break;
