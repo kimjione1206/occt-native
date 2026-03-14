@@ -198,7 +198,8 @@ VerifyResult stress_and_verify_sse(uint64_t duration_ns) {
         // 다중 시드 순차 테스트
         for (int s = 0; s < VERIFY_SEED_COUNT; ++s) {
             const auto& seeds = VERIFY_SEEDS[s];
-            const double expected = compute_scalar_expected(seeds, VERIFY_ITERATIONS);
+            // SSE는 separate mul+add이므로 nofma expected 사용
+            const double expected = compute_scalar_expected_nofma(seeds, VERIFY_ITERATIONS);
 
             const __m128d mul = _mm_set1_pd(seeds.mul);
             const __m128d add = _mm_set1_pd(seeds.add);
