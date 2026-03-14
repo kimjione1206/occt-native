@@ -493,15 +493,27 @@ void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
     uint64_t total_written = 0;
     uint64_t ops = 0;
     const uint64_t dur = duration_secs_.load();
+    uint64_t pass_written = 0; // bytes written in current pass
 
-    while (total_written < file_size && !stop_requested_.load()) {
+    while (!stop_requested_.load()) {
         if (dur > 0) {
             auto now = std::chrono::steady_clock::now();
             double elapsed = std::chrono::duration<double>(now - start).count();
             if (elapsed >= static_cast<double>(dur)) break;
         }
+        // If we've written the entire file, seek back to start for another pass
+        if (pass_written >= file_size) {
+            if (dur == 0) break; // No duration = single pass only
+#if defined(_WIN32)
+            LARGE_INTEGER zero = {};
+            SetFilePointerEx(reinterpret_cast<HANDLE>(fd), zero, nullptr, FILE_BEGIN);
+#else
+            lseek(static_cast<int>(fd), 0, SEEK_SET);
+#endif
+            pass_written = 0;
+        }
         size_t to_write = std::min(static_cast<uint64_t>(buf_size),
-                                   file_size - total_written);
+                                   file_size - pass_written);
 
 #if defined(_WIN32)
         DWORD bytes_written = 0;
@@ -516,6 +528,7 @@ void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
             break;
         }
         total_written += bytes_written;
+        pass_written += bytes_written;
 #else
         ssize_t ret = write(static_cast<int>(fd), buf, to_write);
         if (ret <= 0) {
@@ -527,6 +540,7 @@ void StorageEngine::seq_write(intptr_t fd, uint8_t* buf, size_t buf_size,
             break;
         }
         total_written += static_cast<uint64_t>(ret);
+        pass_written += static_cast<uint64_t>(ret);
 #endif
         ops++;
 
@@ -566,15 +580,27 @@ void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
     uint64_t total_read = 0;
     uint64_t ops = 0;
     const uint64_t dur = duration_secs_.load();
+    uint64_t pass_read = 0; // bytes read in current pass
 
-    while (total_read < file_size && !stop_requested_.load()) {
+    while (!stop_requested_.load()) {
         if (dur > 0) {
             auto now = std::chrono::steady_clock::now();
             double elapsed = std::chrono::duration<double>(now - start).count();
             if (elapsed >= static_cast<double>(dur)) break;
         }
+        // If we've read the entire file, seek back to start for another pass
+        if (pass_read >= file_size) {
+            if (dur == 0) break; // No duration = single pass only
+#if defined(_WIN32)
+            LARGE_INTEGER zero = {};
+            SetFilePointerEx(reinterpret_cast<HANDLE>(fd), zero, nullptr, FILE_BEGIN);
+#else
+            lseek(static_cast<int>(fd), 0, SEEK_SET);
+#endif
+            pass_read = 0;
+        }
         size_t to_read = std::min(static_cast<uint64_t>(buf_size),
-                                  file_size - total_read);
+                                  file_size - pass_read);
 
 #if defined(_WIN32)
         DWORD bytes_read = 0;
@@ -589,6 +615,7 @@ void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
             break;
         }
         total_read += bytes_read;
+        pass_read += bytes_read;
 #else
         ssize_t ret = read(static_cast<int>(fd), buf, to_read);
         if (ret <= 0) {
@@ -600,6 +627,7 @@ void StorageEngine::seq_read(intptr_t fd, uint8_t* buf, size_t buf_size,
             break;
         }
         total_read += static_cast<uint64_t>(ret);
+        pass_read += static_cast<uint64_t>(ret);
 #endif
         ops++;
 
