@@ -20,13 +20,22 @@
 #include <QDateTime>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QShortcut>
+#include <QCloseEvent>
+#include <QStyle>
+
+#if defined(_WIN32)
+    #define WIN32_LEAN_AND_MEAN
+    #define NOMINMAX
+    #include <windows.h>
+#endif
 
 namespace occt { namespace gui {
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("OCCT Native Stress Test");
+    setWindowTitle("OCCT 네이티브 스트레스 테스트");
     setMinimumSize(1200, 800);
     resize(1400, 900);
 
@@ -40,6 +49,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Default panel
     setActiveTab("dashboard");
+
+    setupTrayIcon();
+    setupShortcuts();
 }
 
 MainWindow::~MainWindow()
@@ -109,7 +121,7 @@ void MainWindow::createHeaderBar()
     iconLabel->setFont(iconFont);
     layout->addWidget(iconLabel);
 
-    auto* titleLabel = new QLabel("OCCT Native Stress Test", headerBar_);
+    auto* titleLabel = new QLabel("OCCT 네이티브 스트레스 테스트", headerBar_);
     QFont titleFont = titleLabel->font();
     titleFont.setPixelSize(18);
     titleFont.setBold(true);
@@ -137,26 +149,26 @@ void MainWindow::createSidebar()
     sidebarLayout_->setSpacing(2);
 
     // Group 1: Main stress tests
-    addNavButton("dashboard", "Dashboard",    "\xf0\x9f\x93\x8a");
-    addNavButton("cpu",       "CPU Test",     "\xf0\x9f\x94\xa5");
-    addNavButton("gpu",       "GPU Test",     "\xf0\x9f\x8e\xae");
-    addNavButton("ram",       "RAM Test",     "\xf0\x9f\x92\xbe");
-    addNavButton("storage",   "Storage Test", "\xf0\x9f\x92\xbf");
-    addNavButton("psu",       "PSU Test",     "\xf0\x9f\x94\x8c");
+    addNavButton("dashboard", "대시보드",    "\xf0\x9f\x93\x8a");
+    addNavButton("cpu",       "CPU 테스트",     "\xf0\x9f\x94\xa5");
+    addNavButton("gpu",       "GPU 테스트",     "\xf0\x9f\x8e\xae");
+    addNavButton("ram",       "RAM 테스트",     "\xf0\x9f\x92\xbe");
+    addNavButton("storage",   "저장장치 테스트", "\xf0\x9f\x92\xbf");
+    addNavButton("psu",       "PSU 테스트",     "\xf0\x9f\x94\x8c");
 
     addSeparator();
 
     // Group 2: Scheduling & benchmarks
-    addNavButton("schedule",    "Schedule",     "\xf0\x9f\x93\x85");
-    addNavButton("benchmark",   "Benchmark",    "\xf0\x9f\x93\x90");
-    addNavButton("certificate", "Certificate",  "\xf0\x9f\x8f\x86");
+    addNavButton("schedule",    "스케줄",     "\xf0\x9f\x93\x85");
+    addNavButton("benchmark",   "벤치마크",    "\xf0\x9f\x93\x90");
+    addNavButton("certificate", "인증서",  "\xf0\x9f\x8f\x86");
 
     addSeparator();
 
     // Group 3: Monitoring & results
-    addNavButton("monitor",   "Monitoring",   "\xf0\x9f\x93\x89");
-    addNavButton("sysinfo",   "System Info",  "\xf0\x9f\x96\xa5");
-    addNavButton("results",   "Results",      "\xf0\x9f\x93\x8b");
+    addNavButton("monitor",   "모니터링",   "\xf0\x9f\x93\x89");
+    addNavButton("sysinfo",   "시스템 정보",  "\xf0\x9f\x96\xa5");
+    addNavButton("results",   "결과",      "\xf0\x9f\x93\x8b");
 
     sidebarLayout_->addStretch();
 }
@@ -244,7 +256,7 @@ void MainWindow::createPanels()
     if (sensorMgr_->initialize()) {
         sensorMgr_->start_polling(500);
     } else {
-        statusLabel_->setText("Sensor: initialization failed (admin privileges may be required)");
+        statusLabel_->setText("센서: 초기화 실패 (관리자 권한이 필요할 수 있습니다)");
     }
 
     monitorPanel->setSensorManager(sensorMgr_.get());
@@ -282,7 +294,7 @@ void MainWindow::createStatusBarWidgets()
         "QStatusBar::item { border: none; }"
     );
 
-    statusLabel_ = new QLabel("Ready", sb);
+    statusLabel_ = new QLabel("준비", sb);
     statusLabel_->setStyleSheet("color: #8B949E; padding: 2px 8px;");
     sb->addWidget(statusLabel_, 1);
 
@@ -347,7 +359,7 @@ void MainWindow::setActiveTab(const QString& key)
         btn->setStyleSheet(style);
     }
 
-    statusLabel_->setText("Panel: " + key);
+    statusLabel_->setText("패널: " + key);
 }
 
 void MainWindow::updateStatusBar()
@@ -369,28 +381,26 @@ void MainWindow::createMenuBar()
     );
 
     // File menu
-    auto* fileMenu = mb->addMenu("&File");
-    auto* exportAction = fileMenu->addAction("Export Report...");
+    auto* fileMenu = mb->addMenu("&파일");
+    auto* exportAction = fileMenu->addAction("보고서 내보내기...");
     connect(exportAction, &QAction::triggered, this, &MainWindow::onExportReport);
     fileMenu->addSeparator();
-    auto* exitAction = fileMenu->addAction("Exit");
+    auto* exitAction = fileMenu->addAction("종료");
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, this, &MainWindow::onExit);
 
     // Test menu
-    auto* testMenu = mb->addMenu("&Test");
-    auto* startScheduleAction = testMenu->addAction("Start Schedule");
+    auto* testMenu = mb->addMenu("&테스트");
+    auto* startScheduleAction = testMenu->addAction("스케줄 시작");
     connect(startScheduleAction, &QAction::triggered, this, [this]() {
         setActiveTab("schedule");
     });
-    auto* stopAllAction = testMenu->addAction("Stop All Tests");
-    connect(stopAllAction, &QAction::triggered, this, [this]() {
-        statusLabel_->setText("All tests stopped");
-    });
+    auto* stopAllAction = testMenu->addAction("모든 테스트 중지");
+    connect(stopAllAction, &QAction::triggered, this, &MainWindow::stopAllTests);
 
     // Help menu
-    auto* helpMenu = mb->addMenu("&Help");
-    auto* aboutAction = helpMenu->addAction("About");
+    auto* helpMenu = mb->addMenu("&도움말");
+    auto* aboutAction = helpMenu->addAction("정보");
     connect(aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
 }
 
@@ -409,25 +419,161 @@ void MainWindow::onExit()
 
 void MainWindow::onAbout()
 {
-    QMessageBox::about(this, "About OCCT Native Stress Test",
-        "<h2>OCCT Native Stress Test</h2>"
-        "<p>Version 1.0.0</p>"
-        "<p>A professional hardware stress testing tool for CPU, GPU, RAM, "
-        "Storage, and PSU stability verification.</p>"
-        "<p>Features:</p>"
+    QMessageBox::about(this, "OCCT 네이티브 스트레스 테스트 정보",
+        "<h2>OCCT 네이티브 스트레스 테스트</h2>"
+        "<p>버전 1.0.0</p>"
+        "<p>CPU, GPU, RAM, 저장장치, PSU 안정성 검증을 위한 "
+        "전문 하드웨어 스트레스 테스트 도구입니다.</p>"
+        "<p>기능:</p>"
         "<ul>"
-        "<li>CPU: AVX2/AVX-512/SSE/Linpack/Prime stress tests</li>"
-        "<li>GPU: OpenCL/Vulkan compute stress</li>"
-        "<li>RAM: March C/Walking Ones/Random pattern tests</li>"
-        "<li>Storage: Sequential/Random I/O tests</li>"
-        "<li>PSU: Combined CPU+GPU load patterns</li>"
-        "<li>Real-time hardware monitoring</li>"
-        "<li>Test scheduling and automation</li>"
-        "<li>Stability certificate generation</li>"
-        "<li>Report export: HTML, PNG, CSV, JSON</li>"
+        "<li>CPU: AVX2/AVX-512/SSE/Linpack/Prime 스트레스 테스트</li>"
+        "<li>GPU: OpenCL/Vulkan 연산 스트레스</li>"
+        "<li>RAM: March C/Walking Ones/Random 패턴 테스트</li>"
+        "<li>저장장치: 순차/랜덤 I/O 테스트</li>"
+        "<li>PSU: CPU+GPU 결합 부하 패턴</li>"
+        "<li>실시간 하드웨어 모니터링</li>"
+        "<li>테스트 스케줄링 및 자동화</li>"
+        "<li>안정성 인증서 생성</li>"
+        "<li>보고서 내보내기: HTML, PNG, CSV, JSON</li>"
         "</ul>"
-        "<p>Built with Qt6 and C++17.</p>"
+        "<p>Qt6와 C++17로 개발되었습니다.</p>"
     );
+}
+
+// ─── System Tray Icon ────────────────────────────────────────────────────────
+
+void MainWindow::setupTrayIcon()
+{
+    if (!QSystemTrayIcon::isSystemTrayAvailable())
+        return;
+
+    trayIcon_ = new QSystemTrayIcon(this);
+    trayIcon_->setIcon(windowIcon().isNull() ? QApplication::style()->standardIcon(QStyle::SP_ComputerIcon)
+                                              : windowIcon());
+    trayIcon_->setToolTip("OCCT 네이티브 스트레스 테스트");
+
+    trayMenu_ = new QMenu(this);
+
+    auto* showHideAction = trayMenu_->addAction(QString::fromUtf8("\xeb\xb3\xb4\xec\x9d\xb4\xea\xb8\xb0/\xec\x88\xa8\xea\xb8\xb0\xea\xb8\xb0"));
+    connect(showHideAction, &QAction::triggered, this, [this]() {
+        if (isVisible()) {
+            hide();
+        } else {
+            show();
+            raise();
+            activateWindow();
+        }
+    });
+
+    trayMenu_->addSeparator();
+
+    auto* stopAllAction = trayMenu_->addAction(QString::fromUtf8("\xeb\xaa\xa8\xeb\x93\xa0 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xa4\x91\xec\xa7\x80"));
+    connect(stopAllAction, &QAction::triggered, this, &MainWindow::stopAllTests);
+
+    trayMenu_->addSeparator();
+
+    auto* quitAction = trayMenu_->addAction(QString::fromUtf8("\xec\xa2\x85\xeb\xa3\x8c"));
+    connect(quitAction, &QAction::triggered, this, &MainWindow::onExit);
+
+    trayIcon_->setContextMenu(trayMenu_);
+
+    connect(trayIcon_, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason == QSystemTrayIcon::DoubleClick) {
+            if (isVisible()) {
+                hide();
+            } else {
+                show();
+                raise();
+                activateWindow();
+            }
+        }
+    });
+
+    trayIcon_->show();
+}
+
+// ─── Keyboard Shortcuts ─────────────────────────────────────────────────────
+
+void MainWindow::setupShortcuts()
+{
+    // Panel navigation
+    new QShortcut(QKeySequence("Ctrl+1"), this, [this]() { setActiveTab("dashboard"); });
+    new QShortcut(QKeySequence("Ctrl+2"), this, [this]() { setActiveTab("cpu"); });
+    new QShortcut(QKeySequence("Ctrl+3"), this, [this]() { setActiveTab("gpu"); });
+    new QShortcut(QKeySequence("Ctrl+4"), this, [this]() { setActiveTab("ram"); });
+    new QShortcut(QKeySequence("Ctrl+5"), this, [this]() { setActiveTab("storage"); });
+    new QShortcut(QKeySequence("Ctrl+6"), this, [this]() { setActiveTab("monitor"); });
+
+    // Escape = emergency stop all
+    new QShortcut(QKeySequence("Escape"), this, [this]() { stopAllTests(); });
+}
+
+void MainWindow::stopAllTests()
+{
+    // Stop all engines via their panels
+    for (auto it = panels_.begin(); it != panels_.end(); ++it) {
+        const QString& key = it.key();
+        QWidget* panel = it.value();
+
+        if (key == "cpu") {
+            if (auto* p = qobject_cast<CpuPanel*>(panel)) {
+                if (p->engine() && p->engine()->is_running()) {
+                    p->engine()->stop();
+                }
+            }
+        } else if (key == "gpu") {
+            if (auto* p = qobject_cast<GpuPanel*>(panel)) {
+                if (p->engine() && p->engine()->is_running()) {
+                    p->engine()->stop();
+                }
+            }
+        } else if (key == "ram") {
+            if (auto* p = qobject_cast<RamPanel*>(panel)) {
+                if (p->engine() && p->engine()->is_running()) {
+                    p->engine()->stop();
+                }
+            }
+        } else if (key == "storage") {
+            if (auto* p = qobject_cast<StoragePanel*>(panel)) {
+                if (p->engine() && p->engine()->is_running()) {
+                    p->engine()->stop();
+                }
+            }
+        } else if (key == "psu") {
+            if (auto* p = qobject_cast<PsuPanel*>(panel)) {
+                if (p->engine() && p->engine()->is_running()) {
+                    p->engine()->stop();
+                }
+            }
+        }
+    }
+
+    statusLabel_->setText("모든 테스트 중지됨 (긴급 중지)");
+    playTestErrorSound();
+}
+
+// ─── Sound Alerts ────────────────────────────────────────────────────────────
+
+void MainWindow::playTestCompleteSound()
+{
+    if (!soundAlertsEnabled_) return;
+
+#if defined(_WIN32)
+    MessageBeep(MB_OK);
+#else
+    QApplication::beep();
+#endif
+}
+
+void MainWindow::playTestErrorSound()
+{
+    if (!soundAlertsEnabled_) return;
+
+#if defined(_WIN32)
+    MessageBeep(MB_ICONEXCLAMATION);
+#else
+    QApplication::beep();
+#endif
 }
 
 }} // namespace occt::gui

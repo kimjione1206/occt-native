@@ -180,7 +180,9 @@ int CliRunner::run_test(const CliOptions& opts)
         if (guardian) guardian->register_engine(&engine);
 
         CpuStressMode mode = CpuStressMode::AVX2_FMA;
-        if (opts.mode == "linpack") mode = CpuStressMode::LINPACK;
+        if (opts.mode == "auto") mode = CpuStressMode::AUTO;
+        else if (opts.mode == "avx") mode = CpuStressMode::AVX_FLOAT;
+        else if (opts.mode == "linpack") mode = CpuStressMode::LINPACK;
         else if (opts.mode == "prime") mode = CpuStressMode::PRIME;
         else if (opts.mode == "sse") mode = CpuStressMode::SSE_FLOAT;
         else if (opts.mode == "avx512") mode = CpuStressMode::AVX512_FMA;

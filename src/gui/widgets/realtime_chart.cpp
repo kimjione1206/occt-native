@@ -13,13 +13,36 @@ RealtimeChart::RealtimeChart(QWidget* parent)
 {
     setMinimumSize(200, 100);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    // Initialize with one default series for backward compatibility
+    ChartSeries defaultSeries;
+    defaultSeries.name = title_.isEmpty() ? QStringLiteral("Default") : title_;
+    defaultSeries.color = lineColor_;
+    defaultSeries.unit = unit_;
+    defaultSeries.visible = true;
+    series_.append(defaultSeries);
 }
 
-void RealtimeChart::addPoint(double value)
+int RealtimeChart::addSeries(const QString& name, const QColor& color, const QString& unit)
 {
-    data_.append(value);
-    if (data_.size() > maxPoints_)
-        data_.removeFirst();
+    ChartSeries s;
+    s.name = name;
+    s.color = color;
+    s.unit = unit;
+    s.visible = true;
+    series_.append(s);
+    return series_.size() - 1;
+}
+
+void RealtimeChart::addPoint(int seriesIndex, double value)
+{
+    if (seriesIndex < 0 || seriesIndex >= series_.size())
+        return;
+
+    auto& s = series_[seriesIndex];
+    s.data.append(value);
+    if (s.data.size() > maxPoints_)
+        s.data.removeFirst();
 
     if (autoScale_)
         updateAutoScale();
@@ -27,26 +50,79 @@ void RealtimeChart::addPoint(double value)
     update();
 }
 
+void RealtimeChart::addPoint(double value)
+{
+    addPoint(0, value);
+}
+
+void RealtimeChart::setSeriesVisible(int seriesIndex, bool visible)
+{
+    if (seriesIndex < 0 || seriesIndex >= series_.size())
+        return;
+    series_[seriesIndex].visible = visible;
+    if (autoScale_)
+        updateAutoScale();
+    update();
+}
+
+void RealtimeChart::clearSeries(int seriesIndex)
+{
+    if (seriesIndex < 0 || seriesIndex >= series_.size())
+        return;
+    series_[seriesIndex].data.clear();
+    if (autoScale_)
+        updateAutoScale();
+    update();
+}
+
 void RealtimeChart::clear()
 {
-    data_.clear();
+    for (auto& s : series_)
+        s.data.clear();
     update();
+}
+
+bool RealtimeChart::hasAnyData() const
+{
+    for (const auto& s : series_) {
+        if (s.visible && !s.data.isEmpty())
+            return true;
+    }
+    return false;
 }
 
 void RealtimeChart::updateAutoScale()
 {
-    if (data_.isEmpty()) return;
+    bool found = false;
+    double globalMin = 0.0;
+    double globalMax = 0.0;
 
-    double min = *std::min_element(data_.begin(), data_.end());
-    double max = *std::max_element(data_.begin(), data_.end());
+    for (const auto& s : series_) {
+        if (!s.visible || s.data.isEmpty())
+            continue;
 
-    double range = max - min;
+        double sMin = *std::min_element(s.data.begin(), s.data.end());
+        double sMax = *std::max_element(s.data.begin(), s.data.end());
+
+        if (!found) {
+            globalMin = sMin;
+            globalMax = sMax;
+            found = true;
+        } else {
+            globalMin = std::min(globalMin, sMin);
+            globalMax = std::max(globalMax, sMax);
+        }
+    }
+
+    if (!found) return;
+
+    double range = globalMax - globalMin;
     if (range < 1.0) range = 1.0;
 
-    minY_ = min - range * 0.1;
-    maxY_ = max + range * 0.1;
+    minY_ = globalMin - range * 0.1;
+    maxY_ = globalMax + range * 0.1;
 
-    if (minY_ < 0 && min >= 0) minY_ = 0;
+    if (minY_ < 0 && globalMin >= 0) minY_ = 0;
 }
 
 void RealtimeChart::paintEvent(QPaintEvent* /*event*/)
@@ -69,7 +145,17 @@ void RealtimeChart::paintEvent(QPaintEvent* /*event*/)
     drawBackground(painter, plotArea);
     if (gridVisible_) drawGrid(painter, plotArea);
     drawYAxis(painter, plotArea);
-    if (!data_.isEmpty()) drawLine(painter, plotArea);
+
+    // Draw all visible series
+    for (const auto& s : series_) {
+        if (s.visible && !s.data.isEmpty())
+            drawSeriesLine(painter, plotArea, s);
+    }
+
+    // Draw legend if more than 1 series
+    if (series_.size() > 1)
+        drawLegend(painter, plotArea);
+
     if (!title_.isEmpty()) drawTitle(painter, rect());
 }
 
@@ -126,22 +212,22 @@ void RealtimeChart::drawYAxis(QPainter& painter, const QRectF& plotArea)
     }
 }
 
-void RealtimeChart::drawLine(QPainter& painter, const QRectF& plotArea)
+void RealtimeChart::drawSeriesLine(QPainter& painter, const QRectF& plotArea, const ChartSeries& series)
 {
-    if (data_.size() < 2) return;
+    if (series.data.size() < 2) return;
     if (maxPoints_ < 2) return;
 
     double range = maxY_ - minY_;
     if (range < 0.001) range = 1.0;
 
     QPainterPath path;
-    int count = data_.size();
+    int count = series.data.size();
     double dx = plotArea.width() / (maxPoints_ - 1);
     double startX = plotArea.right() - (count - 1) * dx;
 
     for (int i = 0; i < count; ++i) {
         double x = startX + i * dx;
-        double normalized = (data_[i] - minY_) / range;
+        double normalized = (series.data[i] - minY_) / range;
         normalized = std::clamp(normalized, 0.0, 1.0);
         double y = plotArea.bottom() - normalized * plotArea.height();
 
@@ -160,7 +246,7 @@ void RealtimeChart::drawLine(QPainter& painter, const QRectF& plotArea)
         fillPath.closeSubpath();
 
         QLinearGradient grad(0, plotArea.top(), 0, plotArea.bottom());
-        QColor fillColor = lineColor_;
+        QColor fillColor = series.color;
         fillColor.setAlpha(80);
         grad.setColorAt(0, fillColor);
         fillColor.setAlpha(10);
@@ -172,27 +258,91 @@ void RealtimeChart::drawLine(QPainter& painter, const QRectF& plotArea)
     }
 
     // Draw line
-    QPen linePen(lineColor_, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    QPen linePen(series.color, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     painter.setPen(linePen);
     painter.setBrush(Qt::NoBrush);
     painter.drawPath(path);
 
     // Current value dot
     if (count > 0) {
-        double lastNorm = (data_.last() - minY_) / range;
+        double lastNorm = (series.data.last() - minY_) / range;
         lastNorm = std::clamp(lastNorm, 0.0, 1.0);
         double lastY = plotArea.bottom() - lastNorm * plotArea.height();
         double lastXp = startX + (count - 1) * dx;
 
         painter.setPen(Qt::NoPen);
-        painter.setBrush(lineColor_);
+        painter.setBrush(series.color);
         painter.drawEllipse(QPointF(lastXp, lastY), 4, 4);
 
         // Glow effect
-        QColor glow = lineColor_;
+        QColor glow = series.color;
         glow.setAlpha(60);
         painter.setBrush(glow);
         painter.drawEllipse(QPointF(lastXp, lastY), 8, 8);
+    }
+}
+
+void RealtimeChart::drawLegend(QPainter& painter, const QRectF& plotArea)
+{
+    QFont legendFont = font();
+    legendFont.setPixelSize(10);
+    painter.setFont(legendFont);
+    QFontMetrics fm(legendFont);
+
+    // Calculate legend dimensions
+    const int swatchSize = 8;
+    const int itemPadding = 6;
+    const int innerPadding = 4;
+    const int legendPadding = 6;
+
+    int totalWidth = 0;
+    int visibleCount = 0;
+    for (const auto& s : series_) {
+        if (!s.visible) continue;
+        int textWidth = fm.horizontalAdvance(s.name);
+        totalWidth += swatchSize + innerPadding + textWidth;
+        visibleCount++;
+    }
+    if (visibleCount == 0) return;
+
+    totalWidth += (visibleCount - 1) * itemPadding;
+    totalWidth += 2 * legendPadding;
+    int legendHeight = fm.height() + 2 * legendPadding;
+
+    // Position in top-right corner of plot area
+    double legendX = plotArea.right() - totalWidth - 4;
+    double legendY = plotArea.top() + 4;
+
+    // Background
+    QRectF legendRect(legendX, legendY, totalWidth, legendHeight);
+    painter.setPen(Qt::NoPen);
+    QColor bgColor(13, 17, 23, 200);
+    painter.setBrush(bgColor);
+    painter.drawRoundedRect(legendRect, 3, 3);
+
+    // Border
+    painter.setPen(QPen(QColor(48, 54, 61), 1));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(legendRect, 3, 3);
+
+    // Draw items
+    double cx = legendX + legendPadding;
+    double cy = legendY + legendPadding;
+
+    for (const auto& s : series_) {
+        if (!s.visible) continue;
+
+        // Color swatch
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(s.color);
+        double swatchY = cy + (fm.height() - swatchSize) / 2.0;
+        painter.drawRoundedRect(QRectF(cx, swatchY, swatchSize, swatchSize), 2, 2);
+        cx += swatchSize + innerPadding;
+
+        // Name
+        painter.setPen(QColor(201, 209, 217));
+        painter.drawText(QPointF(cx, cy + fm.ascent()), s.name);
+        cx += fm.horizontalAdvance(s.name) + itemPadding;
     }
 }
 

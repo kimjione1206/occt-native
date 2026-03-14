@@ -68,11 +68,11 @@ void SysInfoPanel::setupUi()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel("System Information", this);
+    auto* title = new QLabel("시스템 정보", this);
     title->setStyleSheet("color: #F0F6FC; font-size: 20px; font-weight: bold; background: transparent;");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel("Detailed hardware and software configuration", this);
+    auto* subtitle = new QLabel("상세 하드웨어 및 소프트웨어 구성", this);
     subtitle->setStyleSheet("color: #8B949E; font-size: 13px; background: transparent;");
     mainLayout->addWidget(subtitle);
 
@@ -95,21 +95,21 @@ void SysInfoPanel::setupUi()
 
     // CPU section
     QVector<Row> cpuRows;
-    cpuRows << Row(QStringLiteral("Model"), info.cpu.model.isEmpty() ? QStringLiteral("Unknown") : info.cpu.model);
-    cpuRows << Row(QStringLiteral("Physical Cores"), QString::number(info.cpu.physical_cores));
-    cpuRows << Row(QStringLiteral("Logical Cores"), QString::number(info.cpu.logical_cores));
+    cpuRows << Row(QStringLiteral("모델"), info.cpu.model.isEmpty() ? QStringLiteral("알 수 없음") : info.cpu.model);
+    cpuRows << Row(QStringLiteral("물리 코어"), QString::number(info.cpu.physical_cores));
+    cpuRows << Row(QStringLiteral("논리 코어"), QString::number(info.cpu.logical_cores));
     if (info.cpu.base_clock_mhz > 0)
-        cpuRows << Row(QStringLiteral("Base Clock"), QString::number(info.cpu.base_clock_mhz) + " MHz");
+        cpuRows << Row(QStringLiteral("기본 클럭"), QString::number(info.cpu.base_clock_mhz) + " MHz");
     if (info.cpu.boost_clock_mhz > 0)
-        cpuRows << Row(QStringLiteral("Boost Clock"), QString::number(info.cpu.boost_clock_mhz) + " MHz");
+        cpuRows << Row(QStringLiteral("부스트 클럭"), QString::number(info.cpu.boost_clock_mhz) + " MHz");
     if (info.cpu.l1_cache_kb > 0)
-        cpuRows << Row(QStringLiteral("L1 Cache"), QString::number(info.cpu.l1_cache_kb) + " KB");
+        cpuRows << Row(QStringLiteral("L1 캐시"), QString::number(info.cpu.l1_cache_kb) + " KB");
     if (info.cpu.l2_cache_kb > 0)
-        cpuRows << Row(QStringLiteral("L2 Cache"), QString::number(info.cpu.l2_cache_kb) + " KB");
+        cpuRows << Row(QStringLiteral("L2 캐시"), QString::number(info.cpu.l2_cache_kb) + " KB");
     if (info.cpu.l3_cache_kb > 0)
-        cpuRows << Row(QStringLiteral("L3 Cache"), QString::number(info.cpu.l3_cache_kb) + " KB");
+        cpuRows << Row(QStringLiteral("L3 캐시"), QString::number(info.cpu.l3_cache_kb) + " KB");
     if (!info.cpu.microarchitecture.isEmpty())
-        cpuRows << Row(QStringLiteral("Microarchitecture"), info.cpu.microarchitecture);
+        cpuRows << Row(QStringLiteral("마이크로아키텍처"), info.cpu.microarchitecture);
     contentLayout->addWidget(createSection("CPU", cpuRows));
 
     // GPU section
@@ -117,61 +117,61 @@ void SysInfoPanel::setupUi()
         const auto& gpu = info.gpus[i];
         QString sec_title = info.gpus.size() > 1 ? QString("GPU %1").arg(i) : QStringLiteral("GPU");
         QVector<Row> gpuRows;
-        gpuRows << Row(QStringLiteral("Model"), gpu.model.isEmpty() ? QStringLiteral("Unknown") : gpu.model);
+        gpuRows << Row(QStringLiteral("모델"), gpu.model.isEmpty() ? QStringLiteral("알 수 없음") : gpu.model);
         if (gpu.vram_mb > 0)
             gpuRows << Row(QStringLiteral("VRAM"), QString::number(gpu.vram_mb) + " MB");
         if (!gpu.driver_version.isEmpty())
-            gpuRows << Row(QStringLiteral("Driver"), gpu.driver_version);
-        gpuRows << Row(QStringLiteral("OpenCL"), gpu.has_opencl ? QStringLiteral("Yes") : QStringLiteral("No"));
-        gpuRows << Row(QStringLiteral("Vulkan"), gpu.has_vulkan ? QStringLiteral("Yes") : QStringLiteral("No"));
+            gpuRows << Row(QStringLiteral("드라이버"), gpu.driver_version);
+        gpuRows << Row(QStringLiteral("OpenCL"), gpu.has_opencl ? QStringLiteral("예") : QStringLiteral("아니오"));
+        gpuRows << Row(QStringLiteral("Vulkan"), gpu.has_vulkan ? QStringLiteral("예") : QStringLiteral("아니오"));
         contentLayout->addWidget(createSection(sec_title, gpuRows));
     }
     if (info.gpus.isEmpty()) {
         QVector<Row> gpuRows;
-        gpuRows << Row(QStringLiteral("Status"), QStringLiteral("No GPU detected via system API"));
+        gpuRows << Row(QStringLiteral("상태"), QStringLiteral("시스템 API를 통해 GPU가 감지되지 않음"));
         contentLayout->addWidget(createSection("GPU", gpuRows));
     }
 
     // RAM section
     QVector<Row> ramRows;
-    ramRows << Row(QStringLiteral("Total"),
+    ramRows << Row(QStringLiteral("총 용량"),
                    QString::number(info.ram.total_mb) + " MB (" +
                    QString::number(info.ram.total_mb / 1024) + " GB)");
     if (info.ram.speed_mhz > 0)
-        ramRows << Row(QStringLiteral("Speed"), QString::number(info.ram.speed_mhz) + " MHz");
+        ramRows << Row(QStringLiteral("속도"), QString::number(info.ram.speed_mhz) + " MHz");
     if (!info.ram.timing.isEmpty())
-        ramRows << Row(QStringLiteral("Timing"), info.ram.timing);
+        ramRows << Row(QStringLiteral("타이밍"), info.ram.timing);
     if (info.ram.slot_count > 0)
-        ramRows << Row(QStringLiteral("Slots"), QString::number(info.ram.slot_count));
+        ramRows << Row(QStringLiteral("슬롯"), QString::number(info.ram.slot_count));
     contentLayout->addWidget(createSection("RAM", ramRows));
 
     // Storage section
     for (int i = 0; i < info.storage.size(); ++i) {
         const auto& disk = info.storage[i];
         QVector<Row> diskRows;
-        diskRows << Row(QStringLiteral("Model"), disk.model.isEmpty() ? QStringLiteral("Unknown") : disk.model);
+        diskRows << Row(QStringLiteral("모델"), disk.model.isEmpty() ? QStringLiteral("알 수 없음") : disk.model);
         if (disk.capacity_gb > 0)
-            diskRows << Row(QStringLiteral("Capacity"), QString::number(disk.capacity_gb) + " GB");
-        diskRows << Row(QStringLiteral("Interface"),
-                        disk.interface_type.isEmpty() ? QStringLiteral("Unknown") : disk.interface_type);
+            diskRows << Row(QStringLiteral("용량"), QString::number(disk.capacity_gb) + " GB");
+        diskRows << Row(QStringLiteral("인터페이스"),
+                        disk.interface_type.isEmpty() ? QStringLiteral("알 수 없음") : disk.interface_type);
         contentLayout->addWidget(createSection(
-            info.storage.size() > 1 ? QString("Storage %1").arg(i) : QStringLiteral("Storage"), diskRows));
+            info.storage.size() > 1 ? QString("저장장치 %1").arg(i) : QStringLiteral("저장장치"), diskRows));
     }
     if (info.storage.isEmpty()) {
         QVector<Row> diskRows;
-        diskRows << Row(QStringLiteral("Status"), QStringLiteral("Storage detection requires platform-specific APIs"));
-        contentLayout->addWidget(createSection("Storage", diskRows));
+        diskRows << Row(QStringLiteral("상태"), QStringLiteral("저장장치 감지에는 플랫폼별 API가 필요합니다"));
+        contentLayout->addWidget(createSection("저장장치", diskRows));
     }
 
     // OS section
     QVector<Row> osRows;
-    osRows << Row(QStringLiteral("Name"), info.os.name);
+    osRows << Row(QStringLiteral("이름"), info.os.name);
     if (!info.os.version.isEmpty())
-        osRows << Row(QStringLiteral("Version"), info.os.version);
+        osRows << Row(QStringLiteral("버전"), info.os.version);
     if (!info.os.build.isEmpty())
-        osRows << Row(QStringLiteral("Build"), info.os.build);
-    osRows << Row(QStringLiteral("Architecture"), info.os.architecture);
-    contentLayout->addWidget(createSection("Operating System", osRows));
+        osRows << Row(QStringLiteral("빌드"), info.os.build);
+    osRows << Row(QStringLiteral("아키텍처"), info.os.architecture);
+    contentLayout->addWidget(createSection("운영체제", osRows));
 
     contentLayout->addStretch();
     scrollArea->setWidget(scrollContent);

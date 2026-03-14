@@ -26,11 +26,11 @@ void ResultsPanel::setupUi()
     mainLayout->setSpacing(16);
 
     // Title
-    auto* title = new QLabel("Test Results", this);
+    auto* title = new QLabel("테스트 결과", this);
     title->setStyleSheet("color: #F0F6FC; font-size: 20px; font-weight: bold; background: transparent;");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel("History of completed stress tests", this);
+    auto* subtitle = new QLabel("완료된 스트레스 테스트 기록", this);
     subtitle->setStyleSheet("color: #8B949E; font-size: 13px; background: transparent;");
     mainLayout->addWidget(subtitle);
 
@@ -42,7 +42,7 @@ void ResultsPanel::setupUi()
     resultsTable_->setAccessibleDescription("results_table");
     resultsTable_->setColumnCount(7);
     resultsTable_->setHorizontalHeaderLabels({
-        "Timestamp", "Test Type", "Mode", "Duration", "Score", "Errors", "Result"
+        "시간", "테스트 유형", "모드", "소요 시간", "점수", "오류", "결과"
     });
     resultsTable_->horizontalHeader()->setStretchLastSection(false);
     resultsTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -71,11 +71,11 @@ void ResultsPanel::setupUi()
     auto* detailsLayout = new QVBoxLayout(detailsFrame);
     detailsLayout->setContentsMargins(16, 12, 16, 12);
 
-    auto* detailsTitle = new QLabel("Details", detailsFrame);
+    auto* detailsTitle = new QLabel("상세 정보", detailsFrame);
     detailsTitle->setStyleSheet("color: #C9D1D9; font-size: 14px; font-weight: bold; border: none; background: transparent;");
     detailsLayout->addWidget(detailsTitle);
 
-    detailsLabel_ = new QLabel("Select a result to view details", detailsFrame);
+    detailsLabel_ = new QLabel("결과를 선택하여 상세 정보를 확인하세요", detailsFrame);
     detailsLabel_->setAccessibleDescription("results_details");
     detailsLabel_->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
     detailsLabel_->setWordWrap(true);
@@ -84,7 +84,7 @@ void ResultsPanel::setupUi()
     mainLayout->addWidget(detailsFrame);
 
     // Summary
-    summaryLabel_ = new QLabel("No test results yet", this);
+    summaryLabel_ = new QLabel("테스트 결과가 없습니다", this);
     summaryLabel_->setAccessibleDescription("results_summary");
     summaryLabel_->setStyleSheet("color: #8B949E; font-size: 12px; background: transparent;");
     mainLayout->addWidget(summaryLabel_);
@@ -112,25 +112,25 @@ QFrame* ResultsPanel::createToolbar()
         return btn;
     };
 
-    exportHtmlBtn_ = makeBtn("Export HTML", "#2980B9");
+    exportHtmlBtn_ = makeBtn("HTML 내보내기", "#2980B9");
     connect(exportHtmlBtn_, &QPushButton::clicked, this, &ResultsPanel::onExportHtmlClicked);
     layout->addWidget(exportHtmlBtn_);
 
-    exportPngBtn_ = makeBtn("Export PNG", "#27AE60");
+    exportPngBtn_ = makeBtn("PNG 내보내기", "#27AE60");
     connect(exportPngBtn_, &QPushButton::clicked, this, &ResultsPanel::onExportPngClicked);
     layout->addWidget(exportPngBtn_);
 
-    exportCsvBtn_ = makeBtn("Export CSV", "#8E44AD");
+    exportCsvBtn_ = makeBtn("CSV 내보내기", "#8E44AD");
     connect(exportCsvBtn_, &QPushButton::clicked, this, &ResultsPanel::onExportCsvClicked);
     layout->addWidget(exportCsvBtn_);
 
-    exportJsonBtn_ = makeBtn("Export JSON", "#D35400");
+    exportJsonBtn_ = makeBtn("JSON 내보내기", "#D35400");
     connect(exportJsonBtn_, &QPushButton::clicked, this, &ResultsPanel::onExportJsonClicked);
     layout->addWidget(exportJsonBtn_);
 
     layout->addSpacing(12);
 
-    clearBtn_ = new QPushButton("Clear All", frame);
+    clearBtn_ = new QPushButton("모두 삭제", frame);
     clearBtn_->setCursor(Qt::PointingHandCursor);
     clearBtn_->setStyleSheet(
         "QPushButton { background-color: #C0392B; color: white; border: none; "
@@ -159,7 +159,7 @@ void ResultsPanel::addResult(const TestResult& result)
     resultsTable_->setItem(row, 4, new QTableWidgetItem(result.score));
     resultsTable_->setItem(row, 5, new QTableWidgetItem(QString::number(result.errorCount)));
 
-    auto* resultItem = new QTableWidgetItem(result.passed ? "PASS" : "FAIL");
+    auto* resultItem = new QTableWidgetItem(result.passed ? "통과" : "실패");
     resultItem->setForeground(result.passed ? QColor(46, 204, 113) : QColor(231, 76, 60));
     QFont boldFont = resultItem->font();
     boldFont.setBold(true);
@@ -170,7 +170,7 @@ void ResultsPanel::addResult(const TestResult& result)
     for (const auto& r : results_) {
         if (r.passed) passCount++;
     }
-    summaryLabel_->setText(QString("Total: %1 tests | Passed: %2 | Failed: %3")
+    summaryLabel_->setText(QString("총: %1 테스트 | 통과: %2 | 실패: %3")
         .arg(results_.size()).arg(passCount).arg(results_.size() - passCount));
 }
 
@@ -178,18 +178,18 @@ void ResultsPanel::clearResults()
 {
     results_.clear();
     resultsTable_->setRowCount(0);
-    detailsLabel_->setText("Select a result to view details");
-    summaryLabel_->setText("No test results yet");
+    detailsLabel_->setText("결과를 선택하여 상세 정보를 확인하세요");
+    summaryLabel_->setText("테스트 결과가 없습니다");
 }
 
 void ResultsPanel::doExport(const QString& format, const QString& filter, const QString& defaultName)
 {
     if (results_.isEmpty()) {
-        QMessageBox::information(this, "Export", "No results to export.");
+        QMessageBox::information(this, "내보내기", "내보낼 결과가 없습니다.");
         return;
     }
 
-    QString filename = QFileDialog::getSaveFileName(this, "Export Report", defaultName, filter);
+    QString filename = QFileDialog::getSaveFileName(this, "보고서 내보내기", defaultName, filter);
     if (filename.isEmpty()) return;
 
     // Build TestResults from GUI results
@@ -225,9 +225,9 @@ void ResultsPanel::doExport(const QString& format, const QString& filter, const 
     else if (format == "json") ok = mgr.save_json(testResults, filename);
 
     if (ok) {
-        QMessageBox::information(this, "Export", "Report exported successfully.");
+        QMessageBox::information(this, "내보내기", "보고서가 성공적으로 내보내졌습니다.");
     } else {
-        QMessageBox::warning(this, "Error", "Failed to export report.");
+        QMessageBox::warning(this, "오류", "보고서 내보내기에 실패했습니다.");
     }
 }
 
@@ -253,8 +253,8 @@ void ResultsPanel::onExportJsonClicked()
 
 void ResultsPanel::onClearClicked()
 {
-    auto reply = QMessageBox::question(this, "Clear Results",
-        "Are you sure you want to clear all test results?",
+    auto reply = QMessageBox::question(this, "결과 삭제",
+        "모든 테스트 결과를 삭제하시겠습니까?",
         QMessageBox::Yes | QMessageBox::No);
 
     if (reply == QMessageBox::Yes) {

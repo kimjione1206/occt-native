@@ -138,6 +138,10 @@ SensorManager::~SensorManager() {
     // Unload ADL
     if (adl_handle_) {
 #if defined(_WIN32)
+        if (adl_destroy_ && adl_context_) {
+            adl_destroy_(adl_context_);
+            adl_context_ = nullptr;
+        }
         FreeLibrary(static_cast<HMODULE>(adl_handle_));
 #elif defined(__linux__)
         dlclose(adl_handle_);
@@ -1301,21 +1305,102 @@ void SensorManager::poll_nvml() {
 
 // ─── AMD ADL (dynamic loading) ───────────────────────────────────────────────
 
+// ADL memory allocation callback required by ADL2_Main_Control_Create
+#if defined(_WIN32)
+// Proper ADL memory allocation callback: receives size, returns pointer via malloc
+static void* __stdcall adl_malloc_callback(int size) {
+    return malloc(static_cast<size_t>(size));
+}
+#endif
+
 bool SensorManager::init_adl() {
 #if defined(_WIN32)
     adl_handle_ = LoadLibraryA("atiadlxx.dll");
     if (!adl_handle_) {
         adl_handle_ = LoadLibraryA("atiadlxy.dll"); // 32-bit fallback
     }
-    if (!adl_handle_) return false;
-    std::cerr << "[Sensor] ADL loaded but not fully implemented - AMD GPU monitoring limited" << std::endl;
+    if (!adl_handle_) {
+        std::cerr << "[Sensor] ADL: could not load atiadlxx.dll or atiadlxy.dll" << std::endl;
+        return false;
+    }
+
+    // Resolve core functions
+    adl_create_ = reinterpret_cast<ADL2_MAIN_CONTROL_CREATE>(
+        GetProcAddress(static_cast<HMODULE>(adl_handle_), "ADL2_Main_Control_Create"));
+    adl_destroy_ = reinterpret_cast<ADL2_MAIN_CONTROL_DESTROY>(
+        GetProcAddress(static_cast<HMODULE>(adl_handle_), "ADL2_Main_Control_Destroy"));
+    adl_num_adapters_ = reinterpret_cast<ADL2_ADAPTER_NUMBEROFADAPTERS_GET>(
+        GetProcAddress(static_cast<HMODULE>(adl_handle_), "ADL2_Adapter_NumberOfAdapters_Get"));
+    adl_active_ = reinterpret_cast<ADL2_ADAPTER_ACTIVE_GET>(
+        GetProcAddress(static_cast<HMODULE>(adl_handle_), "ADL2_Adapter_Active_Get"));
+
+    // Try multiple temperature function names (different Overdrive versions)
+    const char* temp_func_names[] = {
+        "ADL2_OverdriveN_Temperature_Get",
+        "ADL2_Overdrive6_Temperature_Get",
+        "ADL2_Overdrive5_Temperature_Get",
+        nullptr
+    };
+    for (int i = 0; temp_func_names[i] != nullptr; ++i) {
+        adl_temp_ = reinterpret_cast<ADL2_OVERDRIVE_TEMPERATURE_GET>(
+            GetProcAddress(static_cast<HMODULE>(adl_handle_), temp_func_names[i]));
+        if (adl_temp_) {
+            std::cerr << "[Sensor] ADL: resolved temperature function: "
+                      << temp_func_names[i] << std::endl;
+            break;
+        } else {
+            std::cerr << "[Sensor] ADL: " << temp_func_names[i] << " not found" << std::endl;
+        }
+    }
+
+    if (!adl_create_ || !adl_num_adapters_) {
+        std::cerr << "[Sensor] ADL: critical functions not found in DLL" << std::endl;
+        FreeLibrary(static_cast<HMODULE>(adl_handle_));
+        adl_handle_ = nullptr;
+        return false;
+    }
+
+    // Initialize ADL2 context
+    // ADL2_Main_Control_Create expects: callback(int) -> void*, enumConnectedAdapters, context**
+    // We cast our malloc callback to the expected signature.
+    using AdlMallocCallback = void* (__stdcall *)(int);
+    auto malloc_cb = reinterpret_cast<int (*)(int)>(
+        static_cast<AdlMallocCallback>(adl_malloc_callback));
+    int adl_status = adl_create_(malloc_cb, 1, &adl_context_);
+    if (adl_status != 0) { // ADL_OK == 0
+        std::cerr << "[Sensor] ADL: ADL2_Main_Control_Create failed with code "
+                  << adl_status << std::endl;
+        FreeLibrary(static_cast<HMODULE>(adl_handle_));
+        adl_handle_ = nullptr;
+        adl_create_ = nullptr;
+        return false;
+    }
+
+    // Get adapter count
+    adl_adapter_count_ = 0;
+    if (adl_num_adapters_(adl_context_, &adl_adapter_count_) != 0 || adl_adapter_count_ <= 0) {
+        std::cerr << "[Sensor] ADL: no adapters found" << std::endl;
+        if (adl_destroy_) adl_destroy_(adl_context_);
+        adl_context_ = nullptr;
+        FreeLibrary(static_cast<HMODULE>(adl_handle_));
+        adl_handle_ = nullptr;
+        return false;
+    }
+
+    std::cerr << "[Sensor] ADL initialized successfully, " << adl_adapter_count_
+              << " adapter(s) found" << std::endl;
     return true;
 
 #elif defined(__linux__)
     adl_handle_ = dlopen("libatiadlxx.so", RTLD_NOW);
-    if (!adl_handle_) return false;
-    std::cerr << "[Sensor] ADL loaded but not fully implemented - AMD GPU monitoring limited" << std::endl;
-    return true;
+    if (!adl_handle_) {
+        std::cerr << "[Sensor] ADL: could not load libatiadlxx.so" << std::endl;
+        return false;
+    }
+    // On Linux, AMD GPU temperature is typically available through sysfs/hwmon
+    // (amdgpu driver). ADL on Linux is uncommon, so we just note its presence.
+    std::cerr << "[Sensor] ADL: loaded on Linux, but sysfs hwmon is preferred for AMD GPU" << std::endl;
+    return false; // Don't activate ADL polling on Linux; sysfs handles it
 
 #else
     return false;
@@ -1323,16 +1408,74 @@ bool SensorManager::init_adl() {
 }
 
 void SensorManager::poll_adl() {
-    // ADL is not fully implemented - skip polling after logging once.
-    // On Linux with AMD GPUs, the sysfs hwmon backend (amdgpu driver)
-    // already provides temperature readings, so ADL is mainly needed
-    // on Windows with the full ADL SDK.
+#if defined(_WIN32)
+    if (!adl_context_ || !adl_active_) {
+        if (!adl_stub_logged_) {
+            std::cerr << "[Sensor] ADL poll skipped - context or functions unavailable" << std::endl;
+            adl_stub_logged_ = true;
+        }
+        return;
+    }
+
+    for (int i = 0; i < adl_adapter_count_; ++i) {
+        // Check if adapter is active
+        int active = 0;
+        if (adl_active_(adl_context_, i, &active) != 0 || !active) {
+            continue;
+        }
+
+        // Get temperature if function is available
+        if (adl_temp_) {
+            int temperature = 0;
+            // Domain 1 = GPU core temperature for most Overdrive versions
+            int status = adl_temp_(adl_context_, i, 1, &temperature);
+            if (status == 0) { // ADL_OK
+                // Temperature may be in millidegrees (1000x) depending on the
+                // Overdrive version. Values > 1000 suggest millidegrees.
+                double temp_c = static_cast<double>(temperature);
+                if (temp_c > 1000.0) {
+                    temp_c /= 1000.0;
+                }
+                std::string sensor_name = "GPU Temperature";
+                if (adl_adapter_count_ > 1) {
+                    sensor_name = "GPU " + std::to_string(i) + " Temperature";
+                }
+                update_reading(sensor_name, "GPU", temp_c, "C");
+            }
+        }
+    }
+#else
+    // On non-Windows platforms, ADL polling is not active.
     if (!adl_stub_logged_) {
-        std::cerr << "[Sensor] ADL poll skipped - stub implementation, "
-                  << "AMD GPU data comes from platform sensors instead" << std::endl;
+        std::cerr << "[Sensor] ADL poll skipped - not supported on this platform" << std::endl;
         adl_stub_logged_ = true;
     }
     (void)adl_handle_;
+#endif
+}
+
+// ─── Convenience filtered accessors ──────────────────────────────────────────
+
+std::vector<SensorReading> SensorManager::get_fan_speeds() const {
+    auto all = get_all_readings();
+    std::vector<SensorReading> result;
+    for (auto& r : all) {
+        if (r.unit == "RPM") {
+            result.push_back(std::move(r));
+        }
+    }
+    return result;
+}
+
+std::vector<SensorReading> SensorManager::get_voltages() const {
+    auto all = get_all_readings();
+    std::vector<SensorReading> result;
+    for (auto& r : all) {
+        if (r.unit == "V") {
+            result.push_back(std::move(r));
+        }
+    }
+    return result;
 }
 
 } // namespace occt

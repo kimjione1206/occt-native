@@ -13,6 +13,8 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
+#include <QSystemTrayIcon>
+#include <QShortcut>
 
 #include <memory>
 
@@ -47,6 +49,11 @@ private:
     void setActiveTab(const QString& key);
     void addNavButton(const QString& key, const QString& text, const QString& iconChar);
     void addSeparator();
+    void setupTrayIcon();
+    void setupShortcuts();
+    void stopAllTests();
+    void playTestCompleteSound();
+    void playTestErrorSound();
 
     QWidget* centralContainer_ = nullptr;
     QFrame* headerBar_ = nullptr;
@@ -64,6 +71,13 @@ private:
     ResultsPanel* resultsPanel_ = nullptr;
     std::unique_ptr<SensorManager> sensorMgr_;
     std::unique_ptr<SafetyGuardian> safetyGuardian_;
+
+    // System tray
+    QSystemTrayIcon* trayIcon_ = nullptr;
+    QMenu* trayMenu_ = nullptr;
+
+    // Sound alerts
+    bool soundAlertsEnabled_ = true;
 };
 
 }} // namespace occt::gui

@@ -58,24 +58,24 @@ QFrame* SchedulePanel::createPresetSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(12);
 
-    auto* title = new QLabel("Test Schedule", frame);
+    auto* title = new QLabel("테스트 스케줄", frame);
     title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
-    auto* subtitle = new QLabel("Select a preset or build a custom schedule", frame);
+    auto* subtitle = new QLabel("프리셋 선택 또는 사용자 정의 스케줄 구성", frame);
     subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
-    auto* presetLabel = new QLabel("Preset Schedule", frame);
+    auto* presetLabel = new QLabel("프리셋 스케줄", frame);
     presetLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(presetLabel);
 
     presetCombo_ = new QComboBox(frame);
-    presetCombo_->addItem("Custom", -1);
-    presetCombo_->addItem("Quick Check (~5 min)", 0);
-    presetCombo_->addItem("Standard (~30 min)", 1);
-    presetCombo_->addItem("Extreme (~1 hour)", 2);
-    presetCombo_->addItem("OC Validation (~2 hours)", 3);
+    presetCombo_->addItem("사용자 정의", -1);
+    presetCombo_->addItem("빠른 검사 (~5분)", 0);
+    presetCombo_->addItem("표준 (~30분)", 1);
+    presetCombo_->addItem("극한 (~1시간)", 2);
+    presetCombo_->addItem("OC 검증 (~2시간)", 3);
     connect(presetCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SchedulePanel::onPresetChanged);
     layout->addWidget(presetCombo_);
@@ -99,7 +99,7 @@ QFrame* SchedulePanel::createCustomSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(10);
 
-    auto* title = new QLabel("Schedule Steps", frame);
+    auto* title = new QLabel("스케줄 단계", frame);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -131,7 +131,7 @@ QFrame* SchedulePanel::createCustomSection()
 
     layout->addLayout(addRow);
 
-    parallelCheck_ = new QCheckBox("Parallel with next step", frame);
+    parallelCheck_ = new QCheckBox("다음 단계와 병렬 실행", frame);
     parallelCheck_->setStyleSheet("color: #8B949E; border: none; background: transparent;");
     layout->addWidget(parallelCheck_);
 
@@ -139,10 +139,10 @@ QFrame* SchedulePanel::createCustomSection()
     auto* btnRow = new QHBoxLayout();
     btnRow->setSpacing(6);
 
-    addBtn_ = new QPushButton("Add", frame);
-    removeBtn_ = new QPushButton("Remove", frame);
-    moveUpBtn_ = new QPushButton("Up", frame);
-    moveDownBtn_ = new QPushButton("Down", frame);
+    addBtn_ = new QPushButton("추가", frame);
+    removeBtn_ = new QPushButton("삭제", frame);
+    moveUpBtn_ = new QPushButton("위로", frame);
+    moveDownBtn_ = new QPushButton("아래로", frame);
 
     auto styleMiniBtn = [](QPushButton* btn) {
         btn->setCursor(Qt::PointingHandCursor);
@@ -166,8 +166,8 @@ QFrame* SchedulePanel::createCustomSection()
 
     // Save/Load
     auto* ioRow = new QHBoxLayout();
-    saveBtn_ = new QPushButton("Save JSON", frame);
-    loadBtn_ = new QPushButton("Load JSON", frame);
+    saveBtn_ = new QPushButton("JSON 저장", frame);
+    loadBtn_ = new QPushButton("JSON 불러오기", frame);
     styleMiniBtn(saveBtn_);
     styleMiniBtn(loadBtn_);
     ioRow->addWidget(saveBtn_);
@@ -196,12 +196,12 @@ QFrame* SchedulePanel::createProgressSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("Schedule Progress", frame);
+    auto* title = new QLabel("스케줄 진행 상황", frame);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
     // Overall progress
-    auto* progressLabel = new QLabel("Overall Progress", frame);
+    auto* progressLabel = new QLabel("전체 진행률", frame);
     progressLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(progressLabel);
 
@@ -218,13 +218,13 @@ QFrame* SchedulePanel::createProgressSection()
     layout->addWidget(overallProgress_);
 
     // Current step info
-    currentStepLabel_ = new QLabel("No schedule running", frame);
+    currentStepLabel_ = new QLabel("실행 중인 스케줄 없음", frame);
     currentStepLabel_->setAccessibleDescription("schedule_current_step");
     currentStepLabel_->setStyleSheet("color: #8B949E; font-size: 14px; border: none; background: transparent;");
     layout->addWidget(currentStepLabel_);
 
     // Status log
-    statusLabel_ = new QLabel("Ready", frame);
+    statusLabel_ = new QLabel("준비", frame);
     statusLabel_->setAccessibleDescription("schedule_status");
     statusLabel_->setStyleSheet(
         "color: #C9D1D9; font-size: 12px; border: none; background-color: #0D1117; "
@@ -236,7 +236,7 @@ QFrame* SchedulePanel::createProgressSection()
     layout->addWidget(statusLabel_, 1);
 
     // Start/Stop button
-    startStopBtn_ = new QPushButton("Start Schedule", frame);
+    startStopBtn_ = new QPushButton("스케줄 시작", frame);
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(styles::kStartButton);
@@ -252,7 +252,7 @@ void SchedulePanel::onPresetChanged(int index)
 
     int presetId = presetCombo_->currentData().toInt();
     if (presetId < 0) {
-        presetInfoLabel_->setText("Build your own schedule below.");
+        presetInfoLabel_->setText("아래에서 직접 스케줄을 구성하세요.");
         return;
     }
 
@@ -383,21 +383,21 @@ void SchedulePanel::onStartStopClicked()
     if (isRunning_) {
         scheduler_->stop();
         isRunning_ = false;
-        startStopBtn_->setText("Start Schedule");
+        startStopBtn_->setText("스케줄 시작");
         startStopBtn_->setStyleSheet(
             styles::kStartButton
         );
-        currentStepLabel_->setText("Schedule stopped");
+        currentStepLabel_->setText("스케줄 중지됨");
     } else {
         if (scheduler_->steps().isEmpty()) {
-            statusLabel_->setText("No steps in schedule. Add steps or select a preset.");
+            statusLabel_->setText("스케줄에 단계가 없습니다. 단계를 추가하거나 프리셋을 선택하세요.");
             return;
         }
 
         isRunning_ = true;
-        statusLabel_->setText("Starting schedule...\n");
+        statusLabel_->setText("스케줄 시작 중...\n");
         overallProgress_->setValue(0);
-        startStopBtn_->setText("Stop Schedule");
+        startStopBtn_->setText("스케줄 중지");
         startStopBtn_->setStyleSheet(
             styles::kStopButton
         );
@@ -408,33 +408,33 @@ void SchedulePanel::onStartStopClicked()
 void SchedulePanel::onStepStarted(int index, const QString& engine)
 {
     currentStepLabel_->setText(
-        QString("Step %1/%2: %3")
+        QString("단계 %1/%2: %3")
             .arg(index + 1)
             .arg(scheduler_->steps().size())
             .arg(engine.toUpper()));
 
     statusLabel_->setText(statusLabel_->text() +
-        QString("Step %1 started: %2\n").arg(index + 1).arg(engine.toUpper()));
+        QString("단계 %1 시작: %2\n").arg(index + 1).arg(engine.toUpper()));
 }
 
 void SchedulePanel::onStepCompleted(int index, bool passed, int errors)
 {
-    QString result = passed ? "PASS" : "FAIL";
+    QString result = passed ? "통과" : "실패";
     statusLabel_->setText(statusLabel_->text() +
-        QString("Step %1 completed: %2 (errors: %3)\n").arg(index + 1).arg(result).arg(errors));
+        QString("단계 %1 완료: %2 (오류: %3)\n").arg(index + 1).arg(result).arg(errors));
 }
 
 void SchedulePanel::onScheduleCompleted(bool all_passed, int total_errors)
 {
     isRunning_ = false;
-    startStopBtn_->setText("Start Schedule");
+    startStopBtn_->setText("스케줄 시작");
     startStopBtn_->setStyleSheet(styles::kStartButton);
     overallProgress_->setValue(100);
 
-    QString summary = all_passed ? "ALL PASSED" : "FAILED";
-    currentStepLabel_->setText("Schedule complete: " + summary);
+    QString summary = all_passed ? "모두 통과" : "실패";
+    currentStepLabel_->setText("스케줄 완료: " + summary);
     statusLabel_->setText(statusLabel_->text() +
-        QString("\n--- Schedule Complete ---\nResult: %1\nTotal errors: %2\n")
+        QString("\n--- 스케줄 완료 ---\n결과: %1\n총 오류: %2\n")
             .arg(summary).arg(total_errors));
 }
 
@@ -445,7 +445,7 @@ void SchedulePanel::onProgressChanged(double pct)
 
 void SchedulePanel::onSaveSchedule()
 {
-    QString path = QFileDialog::getSaveFileName(this, "Save Schedule", "", "JSON (*.json)");
+    QString path = QFileDialog::getSaveFileName(this, "스케줄 저장", "", "JSON (*.json)");
     if (!path.isEmpty()) {
         scheduler_->save_to_json(path);
     }
@@ -454,7 +454,7 @@ void SchedulePanel::onSaveSchedule()
 void SchedulePanel::onLoadSchedule()
 {
     if (isRunning_) return;
-    QString path = QFileDialog::getOpenFileName(this, "Load Schedule", "", "JSON (*.json)");
+    QString path = QFileDialog::getOpenFileName(this, "스케줄 불러오기", "", "JSON (*.json)");
     if (!path.isEmpty()) {
         scheduler_->load_from_json(path);
         presetCombo_->setCurrentIndex(0); // Custom

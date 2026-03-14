@@ -97,6 +97,13 @@ void CpuEngine::start(CpuStressMode mode, int num_threads, int duration_secs,
     load_pattern_ = pattern;
     intensity_mode_ = intensity;
 
+    // Resolve AUTO to best available ISA
+    if (mode_ == CpuStressMode::AUTO) {
+        if (cpu::has_avx512f()) mode_ = CpuStressMode::AVX512_FMA;
+        else if (cpu::has_avx2() && cpu::has_fma()) mode_ = CpuStressMode::AVX2_FMA;
+        else mode_ = CpuStressMode::SSE_FLOAT;
+    }
+
     // Auto-detect thread count
     if (num_threads <= 0) {
         num_threads_ = static_cast<int>(std::thread::hardware_concurrency());
@@ -273,6 +280,10 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
         }
 
         switch (mode_) {
+        case CpuStressMode::AUTO:
+            // AUTO is resolved before the loop; should never reach here
+            break;
+
         case CpuStressMode::AVX512_FMA:
             if (do_verify) {
                 cpu::VerifyResult vr;
@@ -332,6 +343,26 @@ void CpuEngine::worker_thread(int thread_id, int core_id) {
                 } else {
                     ops = cpu::stress_sse(batch_ns);
                 }
+            }
+            break;
+
+        case CpuStressMode::AVX_FLOAT:
+            if (do_verify) {
+                cpu::VerifyResult vr = cpu::stress_and_verify_avx_nofma(batch_ns);
+                ops = vr.ops;
+                if (!vr.passed) {
+                    auto now = std::chrono::steady_clock::now();
+                    uint64_t ts_ms = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+                    error_verifier_.verify_array(core_id, vr.expected, vr.actual, vr.lane_count, ts_ms);
+                    core_error_flags_[thread_id].store(true, std::memory_order_relaxed);
+                    core_error_counts_[thread_id].fetch_add(1, std::memory_order_relaxed);
+                    if (stop_on_error_) {
+                        running_.store(false, std::memory_order_relaxed);
+                    }
+                }
+            } else {
+                ops = cpu::stress_avx_nofma(batch_ns);
             }
             break;
 

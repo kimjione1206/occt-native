@@ -48,7 +48,7 @@ void DashboardPanel::setupUi()
     mainLayout->setSpacing(20);
 
     // Title
-    auto* titleLabel = new QLabel("Dashboard", container);
+    auto* titleLabel = new QLabel("대시보드", container);
     QFont titleFont = titleLabel->font();
     titleFont.setPixelSize(24);
     titleFont.setBold(true);
@@ -56,7 +56,7 @@ void DashboardPanel::setupUi()
     titleLabel->setStyleSheet("color: #F0F6FC; background: transparent;");
     mainLayout->addWidget(titleLabel);
 
-    auto* subtitleLabel = new QLabel("System overview and quick start", container);
+    auto* subtitleLabel = new QLabel("시스템 개요 및 빠른 시작", container);
     subtitleLabel->setStyleSheet("color: #8B949E; background: transparent; font-size: 14px;");
     mainLayout->addWidget(subtitleLabel);
     mainLayout->addSpacing(10);
@@ -74,7 +74,7 @@ void DashboardPanel::setupUi()
         ? QString("%1C/%2T").arg(sysInfo.cpu.physical_cores).arg(sysInfo.cpu.logical_cores)
         : QStringLiteral("Architecture");
 
-    QString gpuModel = QStringLiteral("No GPU detected");
+    QString gpuModel = QStringLiteral("GPU 미감지");
     QString gpuDetail = QStringLiteral("Graphics");
     if (!sysInfo.gpus.isEmpty()) {
         gpuModel = sysInfo.gpus[0].model.isEmpty()
@@ -87,7 +87,7 @@ void DashboardPanel::setupUi()
 
     QString ramValue = sysInfo.ram.total_mb > 0
         ? QString("%1 GB").arg(sysInfo.ram.total_mb / 1024)
-        : QStringLiteral("System Memory");
+        : QStringLiteral("시스템 메모리");
     QString ramDetail = sysInfo.ram.speed_mhz > 0
         ? QString("%1 MHz").arg(sysInfo.ram.speed_mhz)
         : QStringLiteral("Memory");
@@ -109,7 +109,7 @@ void DashboardPanel::setupUi()
     gaugesLayout->setContentsMargins(24, 20, 24, 20);
     gaugesLayout->setSpacing(40);
 
-    auto* gaugesTitle = new QLabel("Real-time Usage", gaugesFrame);
+    auto* gaugesTitle = new QLabel("실시간 사용률", gaugesFrame);
     gaugesTitle->setStyleSheet("color: #C9D1D9; font-size: 16px; font-weight: bold; border: none; background: transparent;");
 
     cpuGauge_ = new CircularGauge(gaugesFrame);
@@ -195,7 +195,7 @@ QFrame* DashboardPanel::createQuickStartSection()
     layout->setContentsMargins(24, 20, 24, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("Quick Start", frame);
+    auto* title = new QLabel("빠른 시작", frame);
     title->setStyleSheet("color: #C9D1D9; font-size: 16px; font-weight: bold; border: none; background: transparent;");
     layout->addWidget(title);
 
@@ -215,9 +215,9 @@ QFrame* DashboardPanel::createQuickStartSection()
         return btn;
     };
 
-    auto* cpuBtn = createBtn("CPU Test", "#C0392B");
-    auto* gpuBtn = createBtn("GPU Test", "#2980B9");
-    auto* fullBtn = createBtn("Full Test", "#27AE60");
+    auto* cpuBtn = createBtn("CPU 테스트", "#C0392B");
+    auto* gpuBtn = createBtn("GPU 테스트", "#2980B9");
+    auto* fullBtn = createBtn("종합 테스트", "#27AE60");
 
     connect(cpuBtn, &QPushButton::clicked, this, &DashboardPanel::startCpuTest);
     connect(gpuBtn, &QPushButton::clicked, this, &DashboardPanel::startGpuTest);

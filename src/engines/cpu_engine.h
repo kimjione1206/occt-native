@@ -17,8 +17,10 @@ namespace occt {
 class SensorManager; // forward declaration
 
 enum class CpuStressMode {
+    AUTO,           // Auto-detect best ISA for this CPU
     AVX2_FMA,       // AVX2 FMA intensive load
     AVX512_FMA,     // AVX-512 FMA load
+    AVX_FLOAT,      // Pure AVX 256-bit without FMA
     SSE_FLOAT,      // SSE floating point
     LINPACK,        // DGEMM matrix multiply
     PRIME,          // Prime number test

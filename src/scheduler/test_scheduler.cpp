@@ -155,7 +155,9 @@ void TestScheduler::startStep(int index)
 
         CpuStressMode mode = CpuStressMode::AVX2_FMA;
         QString modeStr = step.settings.value("mode", "avx2").toString().toLower();
-        if (modeStr == "avx512")       mode = CpuStressMode::AVX512_FMA;
+        if (modeStr == "auto")         mode = CpuStressMode::AUTO;
+        else if (modeStr == "avx512")  mode = CpuStressMode::AVX512_FMA;
+        else if (modeStr == "avx")     mode = CpuStressMode::AVX_FLOAT;
         else if (modeStr == "sse")     mode = CpuStressMode::SSE_FLOAT;
         else if (modeStr == "linpack") mode = CpuStressMode::LINPACK;
         else if (modeStr == "prime")   mode = CpuStressMode::PRIME;

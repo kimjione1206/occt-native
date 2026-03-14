@@ -57,18 +57,18 @@ QFrame* BenchmarkPanel::createControlSection()
     layout->setSpacing(16);
 
     auto* titleLayout = new QVBoxLayout();
-    auto* title = new QLabel("Cache & Memory Benchmark", frame);
+    auto* title = new QLabel("캐시 및 메모리 벤치마크", frame);
     title->setStyleSheet(styles::kPanelTitle);
     titleLayout->addWidget(title);
 
-    statusLabel_ = new QLabel("Ready to run benchmark", frame);
+    statusLabel_ = new QLabel("벤치마크 실행 준비", frame);
     statusLabel_->setAccessibleDescription("bench_status");
     statusLabel_->setStyleSheet(styles::kPanelSubtitle);
     titleLayout->addWidget(statusLabel_);
 
     layout->addLayout(titleLayout, 1);
 
-    runBtn_ = new QPushButton("Run Benchmark", frame);
+    runBtn_ = new QPushButton("벤치마크 실행", frame);
     runBtn_->setCursor(Qt::PointingHandCursor);
     runBtn_->setFixedSize(180, 44);
     runBtn_->setStyleSheet(
@@ -93,7 +93,7 @@ QFrame* BenchmarkPanel::createLatencySection()
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(10);
 
-    auto* title = new QLabel("Cache Latency", latencyFrame_);
+    auto* title = new QLabel("캐시 지연시간", latencyFrame_);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -152,7 +152,7 @@ QFrame* BenchmarkPanel::createBandwidthSection()
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(10);
 
-    auto* title = new QLabel("Cache Bandwidth (Read)", bwFrame_);
+    auto* title = new QLabel("캐시 대역폭 (읽기)", bwFrame_);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -211,7 +211,7 @@ QFrame* BenchmarkPanel::createMemorySection()
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(10);
 
-    auto* title = new QLabel("Memory Benchmark", memFrame_);
+    auto* title = new QLabel("메모리 벤치마크", memFrame_);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -234,15 +234,15 @@ QFrame* BenchmarkPanel::createMemorySection()
         return val;
     };
 
-    memReadLabel_ = createResultRow("Read Bandwidth");
+    memReadLabel_ = createResultRow("읽기 대역폭");
     memReadLabel_->setAccessibleDescription("bench_mem_read");
-    memWriteLabel_ = createResultRow("Write Bandwidth");
+    memWriteLabel_ = createResultRow("쓰기 대역폭");
     memWriteLabel_->setAccessibleDescription("bench_mem_write");
-    memCopyLabel_ = createResultRow("Copy Bandwidth");
+    memCopyLabel_ = createResultRow("복사 대역폭");
     memCopyLabel_->setAccessibleDescription("bench_mem_copy");
-    memLatencyLabel_ = createResultRow("Random Latency");
+    memLatencyLabel_ = createResultRow("랜덤 지연시간");
     memLatencyLabel_->setAccessibleDescription("bench_mem_latency");
-    memChannelsLabel_ = createResultRow("Channels (est.)");
+    memChannelsLabel_ = createResultRow("채널 (추정)");
     memChannelsLabel_->setAccessibleDescription("bench_mem_channels");
 
     return memFrame_;
@@ -281,13 +281,13 @@ void BenchmarkPanel::onRunClicked()
 
     isRunning_ = true;
     runBtn_->setEnabled(false);
-    runBtn_->setText("Running...");
+    runBtn_->setText("실행 중...");
     runBtn_->setStyleSheet(
         "QPushButton { background-color: #5D3F6A; color: #999; border: none; "
         "border-radius: 6px; font-size: 14px; font-weight: bold; }"
     );
 
-    statusLabel_->setText("Benchmark in progress...");
+    statusLabel_->setText("벤치마크 진행 중...");
     clearResults();
 
     emit benchmarkStartRequested();
@@ -340,13 +340,13 @@ void BenchmarkPanel::onBenchmarkFinished(const CacheLatencyResult& c,
     // Re-enable the button
     isRunning_ = false;
     runBtn_->setEnabled(true);
-    runBtn_->setText("Run Benchmark");
+    runBtn_->setText("벤치마크 실행");
     runBtn_->setStyleSheet(
         "QPushButton { background-color: #8E44AD; color: white; border: none; "
         "border-radius: 6px; font-size: 14px; font-weight: bold; }"
         "QPushButton:hover { background-color: #9B59B6; }"
     );
-    statusLabel_->setText("Benchmark complete");
+    statusLabel_->setText("벤치마크 완료");
 }
 
 }} // namespace occt::gui

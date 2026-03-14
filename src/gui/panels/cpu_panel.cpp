@@ -58,26 +58,28 @@ QFrame* CpuPanel::createSettingsSection()
     layout->setSpacing(16);
 
     // Title
-    auto* title = new QLabel("CPU Stress Test", frame);
+    auto* title = new QLabel("CPU 스트레스 테스트", frame);
     title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
-    auto* subtitle = new QLabel("Configure and run CPU stress tests", frame);
+    auto* subtitle = new QLabel("CPU 스트레스 테스트 설정 및 실행", frame);
     subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Mode selection
-    auto* modeLabel = new QLabel("Test Mode", frame);
+    auto* modeLabel = new QLabel("테스트 모드", frame);
     modeLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
     modeCombo_->setAccessibleDescription("cpu_mode_combo");
     modeCombo_->addItems({
+        "Auto (Best ISA)",
         "AVX2 FMA",
         "AVX-512 FMA",
+        "AVX (No FMA)",
         "SSE",
         "Linpack",
         "Prime",
@@ -88,19 +90,19 @@ QFrame* CpuPanel::createSettingsSection()
     layout->addWidget(modeCombo_);
 
     // Load Pattern selection
-    auto* patternLabel = new QLabel("Load Pattern", frame);
+    auto* patternLabel = new QLabel("부하 패턴", frame);
     patternLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(patternLabel);
 
     loadPatternCombo_ = new QComboBox(frame);
     loadPatternCombo_->setAccessibleDescription("cpu_load_pattern_combo");
-    loadPatternCombo_->addItem("Steady", QStringLiteral("STEADY"));
-    loadPatternCombo_->addItem("Variable (change every 10 min)", QStringLiteral("VARIABLE"));
-    loadPatternCombo_->addItem("Core Cycling", QStringLiteral("CORE_CYCLING"));
+    loadPatternCombo_->addItem("일정", QStringLiteral("STEADY"));
+    loadPatternCombo_->addItem("가변 (10분마다 변경)", QStringLiteral("VARIABLE"));
+    loadPatternCombo_->addItem("코어 순환", QStringLiteral("CORE_CYCLING"));
     layout->addWidget(loadPatternCombo_);
 
     // Thread count
-    auto* threadLabel = new QLabel("Threads", frame);
+    auto* threadLabel = new QLabel("스레드", frame);
     threadLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(threadLabel);
 
@@ -122,30 +124,30 @@ QFrame* CpuPanel::createSettingsSection()
     threadRow->addWidget(threadValueLabel_);
     layout->addLayout(threadRow);
 
-    auto* threadInfo = new QLabel(QString("Available: %1 logical cores").arg(maxThreads), frame);
+    auto* threadInfo = new QLabel(QString("가용: %1 논리 코어").arg(maxThreads), frame);
     threadInfo->setStyleSheet(styles::kSmallInfo);
     layout->addWidget(threadInfo);
 
     // Duration
-    auto* durationLabel = new QLabel("Duration", frame);
+    auto* durationLabel = new QLabel("테스트 시간", frame);
     durationLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
     durationCombo_->setAccessibleDescription("cpu_duration_combo");
-    durationCombo_->addItem("1 minute", 60);
-    durationCombo_->addItem("5 minutes", 300);
-    durationCombo_->addItem("10 minutes", 600);
-    durationCombo_->addItem("30 minutes", 1800);
-    durationCombo_->addItem("1 hour", 3600);
-    durationCombo_->addItem("Unlimited", 0);
+    durationCombo_->addItem("1분", 60);
+    durationCombo_->addItem("5분", 300);
+    durationCombo_->addItem("10분", 600);
+    durationCombo_->addItem("30분", 1800);
+    durationCombo_->addItem("1시간", 3600);
+    durationCombo_->addItem("무제한", 0);
     durationCombo_->setCurrentIndex(1); // default 5 min
     layout->addWidget(durationCombo_);
 
     layout->addSpacing(20);
 
     // Start/Stop button
-    startStopBtn_ = new QPushButton("Start Test", frame);
+    startStopBtn_ = new QPushButton("테스트 시작", frame);
     startStopBtn_->setAccessibleDescription("cpu_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
@@ -172,7 +174,7 @@ QFrame* CpuPanel::createMonitoringSection()
     layout->setSpacing(16);
 
     // Title
-    auto* title = new QLabel("Real-time Monitoring", frame);
+    auto* title = new QLabel("실시간 모니터링", frame);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -198,13 +200,13 @@ QFrame* CpuPanel::createMonitoringSection()
     gflopsValueLabel_ = createMetric("GFLOPS", "0.00");
     gflopsValueLabel_->setAccessibleDescription("cpu_gflops_value");
     metricsLayout->addWidget(gflopsValueLabel_->parentWidget());
-    tempLabel_ = createMetric("Temperature", "-- \u00B0C");
+    tempLabel_ = createMetric("온도", "-- \u00B0C");
     tempLabel_->setAccessibleDescription("cpu_temp_value");
     metricsLayout->addWidget(tempLabel_->parentWidget());
-    powerLabel_ = createMetric("Power", "-- W");
+    powerLabel_ = createMetric("전력", "-- W");
     powerLabel_->setAccessibleDescription("cpu_power_value");
     metricsLayout->addWidget(powerLabel_->parentWidget());
-    freqLabel_ = createMetric("Frequency", "-- MHz");
+    freqLabel_ = createMetric("주파수", "-- MHz");
     freqLabel_->setAccessibleDescription("cpu_freq_value");
     metricsLayout->addWidget(freqLabel_->parentWidget());
 
@@ -213,7 +215,7 @@ QFrame* CpuPanel::createMonitoringSection()
     errorCard->setStyleSheet(styles::kCardFrame);
     auto* ecl = new QVBoxLayout(errorCard);
     ecl->setContentsMargins(12, 8, 12, 8);
-    auto* errLabel = new QLabel("Errors", errorCard);
+    auto* errLabel = new QLabel("오류", errorCard);
     errLabel->setStyleSheet(styles::kSmallInfo);
     errorCountLabel_ = new QLabel("0", errorCard);
     errorCountLabel_->setAccessibleDescription("cpu_error_count");
@@ -227,14 +229,14 @@ QFrame* CpuPanel::createMonitoringSection()
     // GFLOPS chart
     gflopsChart_ = new RealtimeChart(frame);
     gflopsChart_->setAccessibleDescription("cpu_gflops_chart");
-    gflopsChart_->setTitle("GFLOPS Over Time");
+    gflopsChart_->setTitle("시간별 GFLOPS");
     gflopsChart_->setUnit("GFLOPS");
     gflopsChart_->setLineColor(QColor(192, 57, 43));
     gflopsChart_->setMinimumHeight(200);
     layout->addWidget(gflopsChart_, 1);
 
     // Per-core error status grid
-    auto* coreTitle = new QLabel("Per-Core Status", frame);
+    auto* coreTitle = new QLabel("코어별 상태", frame);
     coreTitle->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(coreTitle);
 
@@ -255,7 +257,7 @@ QFrame* CpuPanel::createMonitoringSection()
     auto* statusLayout = new QHBoxLayout(statusFrame);
     statusLayout->setContentsMargins(12, 8, 12, 8);
 
-    statusLabel_ = new QLabel("Idle", statusFrame);
+    statusLabel_ = new QLabel("대기", statusFrame);
     statusLabel_->setAccessibleDescription("cpu_status");
     statusLabel_->setStyleSheet(styles::kStatusIdle);
     statusLayout->addWidget(statusLabel_);
@@ -336,13 +338,13 @@ void CpuPanel::onStartStopClicked()
     isRunning_ = !isRunning_;
 
     if (isRunning_) {
-        startStopBtn_->setText("Stop Test");
+        startStopBtn_->setText("테스트 중지");
         startStopBtn_->setStyleSheet(
             styles::kStopButton
         );
 
         // Update status label and reset chart for new test
-        statusLabel_->setText("Running");
+        statusLabel_->setText("실행 중");
         statusLabel_->setStyleSheet(styles::kStatusRunning);
         gflopsChart_->clear();
 
@@ -354,15 +356,17 @@ void CpuPanel::onStartStopClicked()
         int modeIdx = modeCombo_->currentIndex();
         CpuStressMode mode;
         switch (modeIdx) {
-            case 0: mode = CpuStressMode::AVX2_FMA; break;
-            case 1: mode = CpuStressMode::AVX512_FMA; break;
-            case 2: mode = CpuStressMode::SSE_FLOAT; break;
-            case 3: mode = CpuStressMode::LINPACK; break;
-            case 4: mode = CpuStressMode::PRIME; break;
-            case 5: mode = CpuStressMode::ALL; break;
-            case 6: mode = CpuStressMode::CACHE_ONLY; break;
-            case 7: mode = CpuStressMode::LARGE_DATA_SET; break;
-            default: mode = CpuStressMode::AVX2_FMA; break;
+            case 0: mode = CpuStressMode::AUTO; break;
+            case 1: mode = CpuStressMode::AVX2_FMA; break;
+            case 2: mode = CpuStressMode::AVX512_FMA; break;
+            case 3: mode = CpuStressMode::AVX_FLOAT; break;
+            case 4: mode = CpuStressMode::SSE_FLOAT; break;
+            case 5: mode = CpuStressMode::LINPACK; break;
+            case 6: mode = CpuStressMode::PRIME; break;
+            case 7: mode = CpuStressMode::ALL; break;
+            case 8: mode = CpuStressMode::CACHE_ONLY; break;
+            case 9: mode = CpuStressMode::LARGE_DATA_SET; break;
+            default: mode = CpuStressMode::AUTO; break;
         }
 
         LoadPattern pattern;
@@ -384,11 +388,11 @@ void CpuPanel::onStartStopClicked()
                                 loadPatternCombo_->currentData().toString(),
                                 threads, durationSec);
     } else {
-        startStopBtn_->setText("Start Test");
+        startStopBtn_->setText("테스트 시작");
         startStopBtn_->setStyleSheet(styles::kStartButton);
 
         // Update status label
-        statusLabel_->setText("Idle");
+        statusLabel_->setText("대기");
         statusLabel_->setStyleSheet(styles::kStatusIdle);
 
         // Stop engine
@@ -409,9 +413,9 @@ void CpuPanel::updateMonitoring()
         // Engine stopped on its own (duration reached)
         if (isRunning_) {
             isRunning_ = false;
-            startStopBtn_->setText("Start Test");
+            startStopBtn_->setText("테스트 시작");
             startStopBtn_->setStyleSheet(styles::kStartButton);
-            statusLabel_->setText("Idle");
+            statusLabel_->setText("대기");
             statusLabel_->setStyleSheet(styles::kStatusIdle);
             monitorTimer_->stop();
         }
@@ -444,7 +448,7 @@ void CpuPanel::updateMonitoring()
     if (cpuPower > 0) {
         QString powerText = QString::number(cpuPower, 'f', 1) + " W";
         if (powerEstimated)
-            powerText += " (est.)";
+            powerText += " (추정)";
         powerLabel_->setText(powerText);
     } else {
         powerLabel_->setText("N/A");

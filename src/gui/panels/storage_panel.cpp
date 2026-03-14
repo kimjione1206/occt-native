@@ -55,18 +55,18 @@ QFrame* StoragePanel::createSettingsSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("Storage Test", frame);
+    auto* title = new QLabel("저장장치 테스트", frame);
     title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
-    auto* subtitle = new QLabel("Disk I/O performance testing", frame);
+    auto* subtitle = new QLabel("저장장치 I/O 스트레스 테스트 및 검증", frame);
     subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Mode
-    auto* modeLabel = new QLabel("Test Mode", frame);
+    auto* modeLabel = new QLabel("테스트 모드", frame);
     modeLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(modeLabel);
 
@@ -86,7 +86,7 @@ QFrame* StoragePanel::createSettingsSection()
     layout->addWidget(modeCombo_);
 
     // Block size
-    auto* blockLabel = new QLabel("Block Size", frame);
+    auto* blockLabel = new QLabel("블록 크기", frame);
     blockLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(blockLabel);
 
@@ -96,12 +96,12 @@ QFrame* StoragePanel::createSettingsSection()
     layout->addWidget(blockSizeCombo_);
 
     // Direct I/O
-    directIOCheck_ = new QCheckBox("Direct I/O (bypass cache)", frame);
+    directIOCheck_ = new QCheckBox("직접 I/O (캐시 우회)", frame);
     directIOCheck_->setChecked(true);
     layout->addWidget(directIOCheck_);
 
     // Queue Depth
-    auto* qdLabel = new QLabel("Queue Depth", frame);
+    auto* qdLabel = new QLabel("큐 깊이", frame);
     qdLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(qdLabel);
 
@@ -111,23 +111,23 @@ QFrame* StoragePanel::createSettingsSection()
     layout->addWidget(queueDepthSpin_);
 
     // Duration
-    auto* durationLabel = new QLabel("Duration", frame);
+    auto* durationLabel = new QLabel("테스트 시간", frame);
     durationLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
-    durationCombo_->addItem("1 minute", 60);
-    durationCombo_->addItem("5 minutes", 300);
-    durationCombo_->addItem("10 minutes", 600);
-    durationCombo_->addItem("30 minutes", 1800);
-    durationCombo_->addItem("1 hour", 3600);
-    durationCombo_->addItem("Unlimited", 0);
+    durationCombo_->addItem("1분", 60);
+    durationCombo_->addItem("5분", 300);
+    durationCombo_->addItem("10분", 600);
+    durationCombo_->addItem("30분", 1800);
+    durationCombo_->addItem("1시간", 3600);
+    durationCombo_->addItem("무제한", 0);
     durationCombo_->setCurrentIndex(1); // default 5 min
     layout->addWidget(durationCombo_);
 
     layout->addSpacing(20);
 
-    startStopBtn_ = new QPushButton("Start Test", frame);
+    startStopBtn_ = new QPushButton("테스트 시작", frame);
     startStopBtn_->setAccessibleDescription("storage_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
@@ -153,7 +153,7 @@ QFrame* StoragePanel::createMonitoringSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("Storage Monitoring", frame);
+    auto* title = new QLabel("저장장치 모니터링", frame);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -187,29 +187,29 @@ QFrame* StoragePanel::createMonitoringSection()
     iopsLabel_ = createMetric("IOPS", "0");
     iopsLabel_->setAccessibleDescription("storage_iops_value");
     metricsRow1->addWidget(iopsLabel_->parentWidget());
-    throughputLabel_ = createMetric("Throughput", "0 MB/s");
+    throughputLabel_ = createMetric("처리량", "0 MB/s");
     throughputLabel_->setAccessibleDescription("storage_throughput_value");
     metricsRow1->addWidget(throughputLabel_->parentWidget());
-    latencyLabel_ = createMetric("Avg Latency", "-- ms");
+    latencyLabel_ = createMetric("평균 지연시간", "-- ms");
     latencyLabel_->setAccessibleDescription("storage_latency_value");
     metricsRow1->addWidget(latencyLabel_->parentWidget());
-    blocksVerifiedLabel_ = createMetric("Blocks Verified", "0");
+    blocksVerifiedLabel_ = createMetric("검증된 블록", "0");
     blocksVerifiedLabel_->setAccessibleDescription("storage_blocks_verified");
     metricsRow1->addWidget(blocksVerifiedLabel_->parentWidget());
 
     // Row 2: Verify Errors, CRC Errors, Pattern Errors, Verify Speed
     auto* metricsRow2 = new QHBoxLayout();
     metricsRow2->setSpacing(12);
-    verifyErrorsLabel_ = createMetric("Verify Errors", "0");
+    verifyErrorsLabel_ = createMetric("검증 오류", "0");
     verifyErrorsLabel_->setAccessibleDescription("storage_verify_errors");
     metricsRow2->addWidget(verifyErrorsLabel_->parentWidget());
-    crcErrorsLabel_ = createMetric("CRC Errors", "0");
+    crcErrorsLabel_ = createMetric("CRC 오류", "0");
     crcErrorsLabel_->setAccessibleDescription("storage_crc_errors");
     metricsRow2->addWidget(crcErrorsLabel_->parentWidget());
-    patternErrorsLabel_ = createMetric("Pattern Errors", "0");
+    patternErrorsLabel_ = createMetric("패턴 오류", "0");
     patternErrorsLabel_->setAccessibleDescription("storage_pattern_errors");
     metricsRow2->addWidget(patternErrorsLabel_->parentWidget());
-    verifyMbsLabel_ = createMetric("Verify Speed", "-- MB/s");
+    verifyMbsLabel_ = createMetric("검증 속도", "-- MB/s");
     verifyMbsLabel_->setAccessibleDescription("storage_verify_mbs");
     metricsRow2->addWidget(verifyMbsLabel_->parentWidget());
 
@@ -218,7 +218,7 @@ QFrame* StoragePanel::createMonitoringSection()
 
     // IOPS chart
     iopsChart_ = new RealtimeChart(frame);
-    iopsChart_->setTitle("IOPS Over Time");
+    iopsChart_->setTitle("시간별 IOPS");
     iopsChart_->setUnit("IOPS");
     iopsChart_->setLineColor(QColor(230, 126, 34));
     iopsChart_->setMinimumHeight(180);
@@ -226,7 +226,7 @@ QFrame* StoragePanel::createMonitoringSection()
 
     // Throughput chart
     throughputChart_ = new RealtimeChart(frame);
-    throughputChart_->setTitle("Throughput Over Time");
+    throughputChart_->setTitle("시간별 처리량");
     throughputChart_->setUnit("MB/s");
     throughputChart_->setLineColor(QColor(46, 204, 113));
     throughputChart_->setMinimumHeight(180);
@@ -240,7 +240,7 @@ void StoragePanel::onStartStopClicked()
     isRunning_ = !isRunning_;
 
     if (isRunning_) {
-        startStopBtn_->setText("Stop Test");
+        startStopBtn_->setText("테스트 중지");
         startStopBtn_->setStyleSheet(
             styles::kStopButton
         );
@@ -280,17 +280,17 @@ void StoragePanel::onStartStopClicked()
 
         int durationSec = durationCombo_->currentData().toInt();
         if (!engine_->start(mode, testPath, 256, queueDepth, durationSec)) {
-            QMessageBox::warning(this, "Storage Test Error",
+            QMessageBox::warning(this, "저장장치 테스트 오류",
                 QString::fromStdString(engine_->last_error()));
             isRunning_ = false;
-            startStopBtn_->setText("Start Test");
+            startStopBtn_->setText("테스트 시작");
             return;
         }
         monitorTimer_->start(500);
 
         emit testStartRequested(modeCombo_->currentText(), directIOCheck_->isChecked(), queueDepthSpin_->value());
     } else {
-        startStopBtn_->setText("Start Test");
+        startStopBtn_->setText("테스트 시작");
         startStopBtn_->setStyleSheet(styles::kStartButton);
 
         engine_->stop();
@@ -305,7 +305,7 @@ void StoragePanel::updateMonitoring()
         // Engine stopped on its own (test completed)
         if (isRunning_) {
             isRunning_ = false;
-            startStopBtn_->setText("Start Test");
+            startStopBtn_->setText("테스트 시작");
             startStopBtn_->setStyleSheet(styles::kStartButton);
             monitorTimer_->stop();
         }
@@ -318,7 +318,7 @@ void StoragePanel::updateMonitoring()
     std::string lastErr = engine_->last_error();
     if (m.state == "error" || !lastErr.empty()) {
         QString errMsg = lastErr.empty()
-            ? "Storage engine encountered an error"
+            ? "저장장치 엔진에 오류가 발생했습니다"
             : QString::fromStdString(lastErr);
         statusLabel_->setText(errMsg);
         statusLabel_->setStyleSheet(
@@ -331,9 +331,9 @@ void StoragePanel::updateMonitoring()
 
     if (m.state == "preparing") {
         // Show file preparation progress
-        iopsLabel_->setText("Preparing...");
+        iopsLabel_->setText("준비 중...");
         double prep_pct = m.progress_pct;
-        throughputLabel_->setText(QString("Creating test file: %1%").arg(prep_pct, 0, 'f', 0));
+        throughputLabel_->setText(QString("테스트 파일 생성 중: %1%").arg(prep_pct, 0, 'f', 0));
         return;
     }
 

@@ -20,9 +20,9 @@ GpuPanel::GpuPanel(QWidget* parent)
     setupUi();
     if (!gpuOk) {
         startStopBtn_->setEnabled(false);
-        startStopBtn_->setText("GPU Not Available");
+        startStopBtn_->setText("GPU 사용 불가");
         startStopBtn_->setStyleSheet("background-color: #555; color: #999;");
-        statusBanner_->setText("GPU backend not available (OpenCL/Vulkan not enabled in this build)");
+        statusBanner_->setText("GPU 백엔드 사용 불가 (이 빌드에서 OpenCL/Vulkan이 활성화되지 않음)");
         statusBanner_->setVisible(true);
     }
 
@@ -59,18 +59,18 @@ QFrame* GpuPanel::createSettingsSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("GPU Stress Test", frame);
+    auto* title = new QLabel("GPU 스트레스 테스트", frame);
     title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
-    auto* subtitle = new QLabel("Configure GPU compute & 3D stress tests", frame);
+    auto* subtitle = new QLabel("GPU 연산 및 3D 스트레스 테스트 설정", frame);
     subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // GPU selection
-    auto* gpuLabel = new QLabel("GPU Device", frame);
+    auto* gpuLabel = new QLabel("GPU 장치", frame);
     gpuLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(gpuLabel);
 
@@ -79,7 +79,7 @@ QFrame* GpuPanel::createSettingsSection()
     // Populate with detected GPUs
     auto gpus = engine_->get_available_gpus();
     if (gpus.empty()) {
-        gpuSelectCombo_->addItem("Auto-detect (default GPU)");
+        gpuSelectCombo_->addItem("자동 감지 (기본 GPU)");
     } else {
         for (const auto& gpu : gpus) {
             gpuSelectCombo_->addItem(QString::fromStdString(gpu.name));
@@ -88,7 +88,7 @@ QFrame* GpuPanel::createSettingsSection()
     layout->addWidget(gpuSelectCombo_);
 
     // Mode
-    auto* modeLabel = new QLabel("Test Mode", frame);
+    auto* modeLabel = new QLabel("테스트 모드", frame);
     modeLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(modeLabel);
 
@@ -115,7 +115,7 @@ QFrame* GpuPanel::createSettingsSection()
     vulkanLayout->setSpacing(8);
 
     // Shader complexity slider
-    auto* shaderLabel = new QLabel("Shader Complexity", vulkanSettingsWidget_);
+    auto* shaderLabel = new QLabel("셰이더 복잡도", vulkanSettingsWidget_);
     shaderLabel->setStyleSheet(styles::kSettingsLabel);
     vulkanLayout->addWidget(shaderLabel);
 
@@ -126,12 +126,12 @@ QFrame* GpuPanel::createSettingsSection()
     shaderComplexitySlider_->setTickPosition(QSlider::TicksBelow);
     shaderComplexitySlider_->setTickInterval(1);
 
-    shaderComplexityLabel_ = new QLabel("Level 1", vulkanSettingsWidget_);
+    shaderComplexityLabel_ = new QLabel("레벨 1", vulkanSettingsWidget_);
     shaderComplexityLabel_->setStyleSheet(styles::kSettingsLabel);
     shaderComplexityLabel_->setFixedWidth(60);
 
     connect(shaderComplexitySlider_, &QSlider::valueChanged, this, [this](int val) {
-        shaderComplexityLabel_->setText(QString("Level %1").arg(val));
+        shaderComplexityLabel_->setText(QString("레벨 %1").arg(val));
     });
 
     sliderLayout->addWidget(shaderComplexitySlider_);
@@ -139,7 +139,7 @@ QFrame* GpuPanel::createSettingsSection()
     vulkanLayout->addLayout(sliderLayout);
 
     // Adaptive mode
-    auto* adaptiveLabel = new QLabel("Adaptive Mode", vulkanSettingsWidget_);
+    auto* adaptiveLabel = new QLabel("적응형 모드", vulkanSettingsWidget_);
     adaptiveLabel->setStyleSheet(styles::kSettingsLabel);
     vulkanLayout->addWidget(adaptiveLabel);
 
@@ -148,7 +148,7 @@ QFrame* GpuPanel::createSettingsSection()
     vulkanLayout->addWidget(adaptiveModeCombo_);
 
     // Coil Whine Frequency (for COIL_WHINE adaptive mode)
-    coilFreqLabel_ = new QLabel("Coil Frequency (Hz)", vulkanSettingsWidget_);
+    coilFreqLabel_ = new QLabel("코일 주파수 (Hz)", vulkanSettingsWidget_);
     coilFreqLabel_->setStyleSheet(styles::kSettingsLabel);
     vulkanLayout->addWidget(coilFreqLabel_);
 
@@ -173,7 +173,7 @@ QFrame* GpuPanel::createSettingsSection()
     });
 
     // Multi-GPU checkbox
-    multiGpuCheck_ = new QCheckBox("Multi-GPU (all detected GPUs)", vulkanSettingsWidget_);
+    multiGpuCheck_ = new QCheckBox("멀티 GPU (감지된 모든 GPU)", vulkanSettingsWidget_);
     multiGpuCheck_->setStyleSheet("color: #C9D1D9; border: none; background: transparent;");
     vulkanLayout->addWidget(multiGpuCheck_);
 
@@ -181,24 +181,24 @@ QFrame* GpuPanel::createSettingsSection()
     layout->addWidget(vulkanSettingsWidget_);
 
     // Duration
-    auto* durationLabel = new QLabel("Duration", frame);
+    auto* durationLabel = new QLabel("테스트 시간", frame);
     durationLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
     durationCombo_->setAccessibleDescription("gpu_duration_combo");
-    durationCombo_->addItem("1 minute", 60);
-    durationCombo_->addItem("5 minutes", 300);
-    durationCombo_->addItem("10 minutes", 600);
-    durationCombo_->addItem("30 minutes", 1800);
-    durationCombo_->addItem("1 hour", 3600);
-    durationCombo_->addItem("Unlimited", 0);
+    durationCombo_->addItem("1분", 60);
+    durationCombo_->addItem("5분", 300);
+    durationCombo_->addItem("10분", 600);
+    durationCombo_->addItem("30분", 1800);
+    durationCombo_->addItem("1시간", 3600);
+    durationCombo_->addItem("무제한", 0);
     durationCombo_->setCurrentIndex(1);
     layout->addWidget(durationCombo_);
 
     layout->addSpacing(20);
 
-    startStopBtn_ = new QPushButton("Start Test", frame);
+    startStopBtn_ = new QPushButton("테스트 시작", frame);
     startStopBtn_->setAccessibleDescription("gpu_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
@@ -224,7 +224,7 @@ QFrame* GpuPanel::createMonitoringSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("GPU Monitoring", frame);
+    auto* title = new QLabel("GPU 모니터링", frame);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -243,7 +243,7 @@ QFrame* GpuPanel::createMonitoringSection()
     // GPU usage gauge
     gpuUsageGauge_ = new CircularGauge(frame);
     gpuUsageGauge_->setAccessibleDescription("gpu_usage_gauge");
-    gpuUsageGauge_->setLabel("GPU Usage");
+    gpuUsageGauge_->setLabel("GPU 사용률");
     gpuUsageGauge_->setFixedSize(140, 140);
     metricsLayout->addWidget(gpuUsageGauge_);
 
@@ -270,19 +270,19 @@ QFrame* GpuPanel::createMonitoringSection()
     gflopsLabel_ = createMetricCard("GFLOPS", "0.00");
     gflopsLabel_->setAccessibleDescription("gpu_gflops_value");
     metricsGrid->addWidget(gflopsLabel_->parentWidget());
-    tempLabel_ = createMetricCard("Temperature", "-- C");
+    tempLabel_ = createMetricCard("온도", "-- C");
     tempLabel_->setAccessibleDescription("gpu_temp_value");
     metricsGrid->addWidget(tempLabel_->parentWidget());
-    vramLabel_ = createMetricCard("VRAM Used", "-- %");
+    vramLabel_ = createMetricCard("VRAM 사용", "-- %");
     vramLabel_->setAccessibleDescription("gpu_vram_usage");
     metricsGrid->addWidget(vramLabel_->parentWidget());
     fpsLabel_ = createMetricCard("FPS", "--");
     fpsLabel_->setAccessibleDescription("gpu_fps_value");
     metricsGrid->addWidget(fpsLabel_->parentWidget());
-    artifactLabel_ = createMetricCard("Artifacts", "0");
+    artifactLabel_ = createMetricCard("아티팩트", "0");
     artifactLabel_->setAccessibleDescription("gpu_artifact_count");
     metricsGrid->addWidget(artifactLabel_->parentWidget());
-    vramErrorsLabel_ = createMetricCard("VRAM Errors", "0");
+    vramErrorsLabel_ = createMetricCard("VRAM 오류", "0");
     vramErrorsLabel_->setAccessibleDescription("gpu_vram_errors");
     metricsGrid->addWidget(vramErrorsLabel_->parentWidget());
 
@@ -290,7 +290,7 @@ QFrame* GpuPanel::createMonitoringSection()
     layout->addLayout(metricsLayout);
 
     // VRAM progress bar
-    auto* vramTitle = new QLabel("VRAM Usage", frame);
+    auto* vramTitle = new QLabel("VRAM 사용률", frame);
     vramTitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(vramTitle);
 
@@ -305,7 +305,7 @@ QFrame* GpuPanel::createMonitoringSection()
     // GFLOPS chart
     gflopsChart_ = new RealtimeChart(frame);
     gflopsChart_->setAccessibleDescription("gpu_gflops_chart");
-    gflopsChart_->setTitle("GPU Performance Over Time");
+    gflopsChart_->setTitle("시간별 GPU 성능");
     gflopsChart_->setUnit("GFLOPS");
     gflopsChart_->setLineColor(QColor(41, 128, 185));
     gflopsChart_->setMinimumHeight(200);
@@ -344,7 +344,7 @@ void GpuPanel::onStartStopClicked()
     isRunning_ = !isRunning_;
 
     if (isRunning_) {
-        startStopBtn_->setText("Stop Test");
+        startStopBtn_->setText("테스트 중지");
         startStopBtn_->setStyleSheet(
             styles::kStopButton
         );
@@ -389,13 +389,13 @@ void GpuPanel::onStartStopClicked()
         // Start engine
         if (!engine_->start(mode, durationSec)) {
             QString errMsg = QString::fromStdString(engine_->last_error());
-            QMessageBox::warning(this, "GPU Test Error", errMsg);
+            QMessageBox::warning(this, "GPU 테스트 오류", errMsg);
             statusBanner_->setText(errMsg.isEmpty()
-                ? "GPU backend not available (OpenCL/Vulkan not enabled in this build)"
+                ? "GPU 백엔드 사용 불가 (이 빌드에서 OpenCL/Vulkan이 활성화되지 않음)"
                 : errMsg);
             statusBanner_->setVisible(true);
             isRunning_ = false;
-            startStopBtn_->setText("Start Test");
+            startStopBtn_->setText("테스트 시작");
             startStopBtn_->setStyleSheet(styles::kStartButton);
             return;
         }
@@ -408,7 +408,7 @@ void GpuPanel::onStartStopClicked()
 
         emit testStartRequested(gpuSelectCombo_->currentText(), modeCombo_->currentText(), durationSec);
     } else {
-        startStopBtn_->setText("Start Test");
+        startStopBtn_->setText("테스트 시작");
         startStopBtn_->setStyleSheet(styles::kStartButton);
 
         // Stop engine
@@ -424,7 +424,7 @@ void GpuPanel::updateMonitoring()
         // Engine stopped on its own (duration reached)
         if (isRunning_) {
             isRunning_ = false;
-            startStopBtn_->setText("Start Test");
+            startStopBtn_->setText("테스트 시작");
             startStopBtn_->setStyleSheet(styles::kStartButton);
             monitorTimer_->stop();
         }
@@ -469,7 +469,7 @@ void GpuPanel::updateMonitoring()
     if (m.vram_errors > 0) {
         vramErrorsLabel_->setStyleSheet(styles::kErrorText);
         if (!statusBanner_->isVisible()) {
-            statusBanner_->setText(QString("GPU errors detected: %1 VRAM error(s), %2 artifact(s)")
+            statusBanner_->setText(QString("GPU 오류 감지: VRAM 오류 %1건, 아티팩트 %2건")
                 .arg(m.vram_errors).arg(m.artifact_count));
             statusBanner_->setStyleSheet(
                 "color: #E74C3C; font-size: 13px; font-weight: bold; border: 1px solid #E74C3C; "

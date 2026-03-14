@@ -53,6 +53,10 @@ public:
     /// @param passes     Number of full passes over the buffer.
     void start(RamPattern pattern, double memory_pct = 0.70, int passes = 1);
 
+    /// Direct MB specification instead of percentage.
+    /// When set to a value > 0, start() will use this instead of memory_pct.
+    void set_memory_mb(uint64_t mb);
+
     void stop() override;
     bool is_running() const override;
     std::string name() const override { return "RAM"; }
@@ -89,6 +93,8 @@ private:
 
     MetricsCallback metrics_cb_;
     std::mutex cb_mutex_;
+
+    uint64_t memory_mb_override_ = 0; // 0 = use percentage mode
 };
 
 } // namespace occt

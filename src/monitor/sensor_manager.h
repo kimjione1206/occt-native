@@ -63,6 +63,10 @@ public:
     double get_gpu_temperature() const;
     double get_cpu_power() const;
 
+    /// Convenience filtered accessors.
+    std::vector<SensorReading> get_fan_speeds() const;
+    std::vector<SensorReading> get_voltages() const;
+
     /// Returns true when get_cpu_power() is a TDP*usage% estimate rather than
     /// a real hardware reading (e.g. from LHM or RAPL).
     bool is_cpu_power_estimated() const;
@@ -141,6 +145,23 @@ private:
 
     // LHM bridge for accurate hardware monitoring
     LhmBridge*  lhm_bridge_ = nullptr;
+
+    // ADL2 function pointer types
+    typedef int (*ADL2_MAIN_CONTROL_CREATE)(int (*)(int), int, void**);
+    typedef int (*ADL2_MAIN_CONTROL_DESTROY)(void*);
+    typedef int (*ADL2_ADAPTER_NUMBEROFADAPTERS_GET)(void*, int*);
+    typedef int (*ADL2_ADAPTER_ACTIVE_GET)(void*, int, int*);
+    typedef int (*ADL2_OVERDRIVE_TEMPERATURE_GET)(void*, int, int, int*);
+    typedef int (*ADL2_OVERDRIVE5_FANSPEED_GET)(void*, int, int, void*);
+
+    // ADL members
+    void* adl_context_ = nullptr;
+    ADL2_MAIN_CONTROL_CREATE adl_create_ = nullptr;
+    ADL2_MAIN_CONTROL_DESTROY adl_destroy_ = nullptr;
+    ADL2_ADAPTER_NUMBEROFADAPTERS_GET adl_num_adapters_ = nullptr;
+    ADL2_ADAPTER_ACTIVE_GET adl_active_ = nullptr;
+    ADL2_OVERDRIVE_TEMPERATURE_GET adl_temp_ = nullptr;
+    int adl_adapter_count_ = 0;
 #endif
 };
 

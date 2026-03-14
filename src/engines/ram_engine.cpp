@@ -75,6 +75,10 @@ RamEngine::~RamEngine() {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+void RamEngine::set_memory_mb(uint64_t mb) {
+    memory_mb_override_ = mb;
+}
+
 void RamEngine::start(RamPattern pattern, double memory_pct, int passes) {
     std::lock_guard<std::mutex> guard(start_stop_mutex_);
 
@@ -84,7 +88,16 @@ void RamEngine::start(RamPattern pattern, double memory_pct, int passes) {
     passes = std::max(passes, 1);
 
     size_t total_ram = get_total_physical_ram();
-    size_t test_size = static_cast<size_t>(static_cast<double>(total_ram) * memory_pct);
+    size_t test_size;
+
+    if (memory_mb_override_ > 0) {
+        // Direct MB mode: use specified MB, capped to 95% of total RAM
+        test_size = static_cast<size_t>(memory_mb_override_) * 1024ULL * 1024ULL;
+        size_t max_size = static_cast<size_t>(static_cast<double>(total_ram) * 0.95);
+        if (test_size > max_size) test_size = max_size;
+    } else {
+        test_size = static_cast<size_t>(static_cast<double>(total_ram) * memory_pct);
+    }
 
     // Align to page boundary (4 KB)
     test_size &= ~static_cast<size_t>(4095);

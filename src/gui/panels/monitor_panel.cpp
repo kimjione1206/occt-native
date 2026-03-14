@@ -99,21 +99,21 @@ void MonitorPanel::setupUi()
     // Title row
     auto* titleRow = new QHBoxLayout();
 
-    auto* title = new QLabel("Hardware Monitoring", this);
+    auto* title = new QLabel("하드웨어 모니터링", this);
     title->setStyleSheet("color: #F0F6FC; font-size: 20px; font-weight: bold; background: transparent;");
     titleRow->addWidget(title);
 
     titleRow->addStretch();
 
     // WHEA error count
-    wheaCountLabel_ = new QLabel("WHEA Errors: 0", this);
+    wheaCountLabel_ = new QLabel("WHEA 오류: 0", this);
     wheaCountLabel_->setAccessibleDescription("monitor_whea_count");
     wheaCountLabel_->setStyleSheet(
         "color: #3FB950; font-size: 13px; font-weight: bold; background: transparent; padding: 4px 12px;");
     titleRow->addWidget(wheaCountLabel_);
 
     // Monitor-only mode button
-    monitorOnlyBtn_ = new QPushButton("Monitor Only", this);
+    monitorOnlyBtn_ = new QPushButton("모니터링 전용", this);
     monitorOnlyBtn_->setCheckable(true);
     monitorOnlyBtn_->setCursor(Qt::PointingHandCursor);
     monitorOnlyBtn_->setStyleSheet(
@@ -129,7 +129,7 @@ void MonitorPanel::setupUi()
 
     mainLayout->addLayout(titleRow);
 
-    auto* subtitle = new QLabel("Real-time sensor data from CPU, GPU, and storage", this);
+    auto* subtitle = new QLabel("CPU, GPU, 저장장치의 실시간 센서 데이터", this);
     subtitle->setStyleSheet("color: #8B949E; font-size: 13px; background: transparent;");
     mainLayout->addWidget(subtitle);
 
@@ -148,13 +148,13 @@ void MonitorPanel::setupUi()
     auto* treeLayout = new QVBoxLayout(treeFrame);
     treeLayout->setContentsMargins(12, 12, 12, 12);
 
-    auto* treeTitle = new QLabel("Sensors", treeFrame);
+    auto* treeTitle = new QLabel("센서", treeFrame);
     treeTitle->setStyleSheet("color: #C9D1D9; font-size: 14px; font-weight: bold; border: none; background: transparent;");
     treeLayout->addWidget(treeTitle);
 
     sensorTree_ = new QTreeWidget(treeFrame);
     sensorTree_->setAccessibleDescription("monitor_sensor_tree");
-    sensorTree_->setHeaderLabels({"Sensor", "Value", "Min", "Max"});
+    sensorTree_->setHeaderLabels({"센서", "값", "최소", "최대"});
     sensorTree_->header()->setStretchLastSection(false);
     sensorTree_->header()->setMinimumSectionSize(50);
     sensorTree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -187,7 +187,7 @@ void MonitorPanel::setupUi()
     chartLayout->setContentsMargins(16, 16, 16, 16);
     chartLayout->setSpacing(12);
 
-    sensorNameLabel_ = new QLabel("Select a sensor", chartFrame);
+    sensorNameLabel_ = new QLabel("센서를 선택하세요", chartFrame);
     sensorNameLabel_->setAccessibleDescription("monitor_sensor_name");
     sensorNameLabel_->setStyleSheet(styles::kSectionTitle);
     chartLayout->addWidget(sensorNameLabel_);
@@ -210,16 +210,16 @@ void MonitorPanel::setupUi()
         return val;
     };
 
-    sensorValueLabel_ = createStat("Current");
+    sensorValueLabel_ = createStat("현재");
     sensorValueLabel_->setAccessibleDescription("monitor_sensor_value");
     statsLayout->addWidget(sensorValueLabel_->parentWidget());
-    sensorMinLabel_ = createStat("Min");
+    sensorMinLabel_ = createStat("최소");
     sensorMinLabel_->setAccessibleDescription("monitor_sensor_min");
     statsLayout->addWidget(sensorMinLabel_->parentWidget());
-    sensorMaxLabel_ = createStat("Max");
+    sensorMaxLabel_ = createStat("최대");
     sensorMaxLabel_->setAccessibleDescription("monitor_sensor_max");
     statsLayout->addWidget(sensorMaxLabel_->parentWidget());
-    sensorAvgLabel_ = createStat("Average");
+    sensorAvgLabel_ = createStat("평균");
     sensorAvgLabel_->setAccessibleDescription("monitor_sensor_avg");
     statsLayout->addWidget(sensorAvgLabel_->parentWidget());
 
@@ -227,7 +227,7 @@ void MonitorPanel::setupUi()
 
     // Chart
     sensorChart_ = new RealtimeChart(chartFrame);
-    sensorChart_->setTitle("Sensor History");
+    sensorChart_->setTitle("센서 기록");
     sensorChart_->setLineColor(QColor(192, 57, 43));
     sensorChart_->setMinimumHeight(300);
     chartLayout->addWidget(sensorChart_, 1);
@@ -359,7 +359,7 @@ void MonitorPanel::updateSensors()
     // Update WHEA count
     if (wheaMon_) {
         int count = wheaMon_->error_count();
-        wheaCountLabel_->setText(QString("WHEA Errors: %1").arg(count));
+        wheaCountLabel_->setText(QString("WHEA 오류: %1").arg(count));
         if (count > 0) {
             wheaCountLabel_->setStyleSheet(
                 "color: #F85149; font-size: 13px; font-weight: bold; background: transparent; padding: 4px 12px;");

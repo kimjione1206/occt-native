@@ -26,6 +26,10 @@ struct VerifyResult {
     int lane_count = 0;        // How many lanes were checked
 };
 
+// Pure AVX 256-bit stress without FMA (uses mul+add separately)
+uint64_t stress_avx_nofma(uint64_t duration_ns);
+VerifyResult stress_and_verify_avx_nofma(uint64_t duration_ns);
+
 // Stress + verify functions - run deterministic FMA chain and verify results
 // These run a fixed number of iterations, verify, then repeat until duration_ns
 VerifyResult stress_and_verify_sse(uint64_t duration_ns);

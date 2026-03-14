@@ -349,6 +349,136 @@ VerifyResult stress_and_verify_avx2(uint64_t duration_ns) {
 
 #endif
 
+// --- AVX No-FMA Stress ---
+// Uses __m256d (4 doubles per register), 8 independent accumulators
+// _mm256_mul_pd + _mm256_add_pd (NO FMA intrinsic)
+
+#if defined(__AVX__) || defined(_MSC_VER)
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avx")))
+#endif
+uint64_t stress_avx_nofma(uint64_t duration_ns) {
+    __m256d acc0 = _mm256_set1_pd(1.0);
+    __m256d acc1 = _mm256_set1_pd(1.1);
+    __m256d acc2 = _mm256_set1_pd(1.2);
+    __m256d acc3 = _mm256_set1_pd(1.3);
+    __m256d acc4 = _mm256_set1_pd(1.4);
+    __m256d acc5 = _mm256_set1_pd(1.5);
+    __m256d acc6 = _mm256_set1_pd(1.6);
+    __m256d acc7 = _mm256_set1_pd(1.7);
+
+    const __m256d mul = _mm256_set1_pd(0.9999999999);
+    const __m256d add = _mm256_set1_pd(0.0000000001);
+
+    uint64_t ops = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (;;) {
+        for (int i = 0; i < 1000; ++i) {
+            acc0 = _mm256_add_pd(_mm256_mul_pd(acc0, mul), add);
+            acc1 = _mm256_add_pd(_mm256_mul_pd(acc1, mul), add);
+            acc2 = _mm256_add_pd(_mm256_mul_pd(acc2, mul), add);
+            acc3 = _mm256_add_pd(_mm256_mul_pd(acc3, mul), add);
+            acc4 = _mm256_add_pd(_mm256_mul_pd(acc4, mul), add);
+            acc5 = _mm256_add_pd(_mm256_mul_pd(acc5, mul), add);
+            acc6 = _mm256_add_pd(_mm256_mul_pd(acc6, mul), add);
+            acc7 = _mm256_add_pd(_mm256_mul_pd(acc7, mul), add);
+        }
+        // 8 accumulators * 1000 iterations * 4 doubles * 2 ops (mul+add)
+        ops += 8ULL * 1000 * 4 * 2;
+
+        auto now = std::chrono::high_resolution_clock::now();
+        uint64_t elapsed = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count());
+        if (elapsed >= duration_ns) break;
+    }
+
+    DO_NOT_OPTIMIZE(acc0);
+    DO_NOT_OPTIMIZE(acc1);
+    DO_NOT_OPTIMIZE(acc2);
+    DO_NOT_OPTIMIZE(acc3);
+    DO_NOT_OPTIMIZE(acc4);
+    DO_NOT_OPTIMIZE(acc5);
+    DO_NOT_OPTIMIZE(acc6);
+    DO_NOT_OPTIMIZE(acc7);
+
+    return ops;
+}
+
+// Pre-compute expected value using scalar mul+add (NO std::fma, matching non-FMA path)
+static double compute_scalar_expected_nofma() {
+    double acc = VERIFY_SEED;
+    for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+        acc = acc * VERIFY_MUL + VERIFY_ADD;
+    }
+    return acc;
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avx")))
+#endif
+VerifyResult stress_and_verify_avx_nofma(uint64_t duration_ns) {
+    VerifyResult result;
+    result.lane_count = 4;
+
+    const double expected = compute_scalar_expected_nofma();
+
+    const __m256d mul = _mm256_set1_pd(VERIFY_MUL);
+    const __m256d add = _mm256_set1_pd(VERIFY_ADD);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (;;) {
+        __m256d acc = _mm256_set1_pd(VERIFY_SEED);
+
+        for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
+            acc = _mm256_add_pd(_mm256_mul_pd(acc, mul), add);
+        }
+        result.ops += 4ULL * VERIFY_ITERATIONS * 2;
+
+        // Extract and verify all 4 lanes
+        alignas(32) double vals[4];
+        _mm256_store_pd(vals, acc);
+
+        for (int lane = 0; lane < 4; ++lane) {
+            uint64_t exp_bits, act_bits;
+            std::memcpy(&exp_bits, &expected, sizeof(double));
+            std::memcpy(&act_bits, &vals[lane], sizeof(double));
+            if (exp_bits != act_bits) {
+                result.passed = false;
+                result.lane_errors++;
+                result.expected[lane] = expected;
+                result.actual[lane] = vals[lane];
+            }
+        }
+
+        DO_NOT_OPTIMIZE(acc);
+
+        if (!result.passed) break;
+
+        auto now = std::chrono::high_resolution_clock::now();
+        uint64_t elapsed = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count());
+        if (elapsed >= duration_ns) break;
+    }
+
+    return result;
+}
+
+#else
+
+uint64_t stress_avx_nofma(uint64_t duration_ns) {
+    // AVX not available, fall back to SSE
+    return stress_sse(duration_ns);
+}
+
+VerifyResult stress_and_verify_avx_nofma(uint64_t duration_ns) {
+    return stress_and_verify_sse(duration_ns);
+}
+
+#endif
+
 // --- AVX-512 FMA Stress ---
 // Uses __m512d (8 doubles per register), 8 independent accumulators
 // _mm512_fmadd_pd: a*b+c on 8 doubles at once
@@ -474,6 +604,8 @@ VerifyResult stress_and_verify_avx512(uint64_t duration_ns) {
 VerifyResult stress_and_verify_neon(uint64_t duration_ns) {
     return stress_and_verify_sse(duration_ns);
 }
+
+// AVX no-FMA stubs already defined above via #if defined(__AVX__) block
 
 }} // namespace occt::cpu
 
@@ -617,6 +749,14 @@ VerifyResult stress_and_verify_avx512(uint64_t duration_ns) {
     return stress_and_verify_neon(duration_ns);
 }
 
+uint64_t stress_avx_nofma(uint64_t duration_ns) {
+    return stress_neon_fp64(duration_ns);
+}
+
+VerifyResult stress_and_verify_avx_nofma(uint64_t duration_ns) {
+    return stress_and_verify_neon(duration_ns);
+}
+
 }} // namespace occt::cpu
 
 // ============================================================
@@ -736,6 +876,14 @@ VerifyResult stress_and_verify_avx512(uint64_t duration_ns) {
 }
 
 VerifyResult stress_and_verify_neon(uint64_t duration_ns) {
+    return stress_and_verify_scalar(duration_ns);
+}
+
+uint64_t stress_avx_nofma(uint64_t duration_ns) {
+    return stress_scalar(duration_ns);
+}
+
+VerifyResult stress_and_verify_avx_nofma(uint64_t duration_ns) {
     return stress_and_verify_scalar(duration_ns);
 }
 

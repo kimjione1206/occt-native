@@ -52,18 +52,18 @@ QFrame* RamPanel::createSettingsSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("RAM Test", frame);
+    auto* title = new QLabel("RAM 테스트", frame);
     title->setStyleSheet(styles::kPanelTitle);
     layout->addWidget(title);
 
-    auto* subtitle = new QLabel("Memory integrity and bandwidth tests", frame);
+    auto* subtitle = new QLabel("메모리 무결성 및 대역폭 테스트", frame);
     subtitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(subtitle);
 
     layout->addSpacing(10);
 
     // Pattern selection
-    auto* patternLabel = new QLabel("Test Pattern", frame);
+    auto* patternLabel = new QLabel("테스트 패턴", frame);
     patternLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(patternLabel);
 
@@ -80,7 +80,7 @@ QFrame* RamPanel::createSettingsSection()
     layout->addWidget(patternCombo_);
 
     // Memory allocation slider
-    auto* memLabel = new QLabel("Memory Allocation", frame);
+    auto* memLabel = new QLabel("메모리 할당", frame);
     memLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(memLabel);
 
@@ -101,13 +101,35 @@ QFrame* RamPanel::createSettingsSection()
     memRow->addWidget(memValueLabel_);
     layout->addLayout(memRow);
 
-    auto* memWarning = new QLabel("Warning: High values may cause system instability", frame);
+    auto* memWarning = new QLabel("경고: 높은 값은 시스템 불안정을 유발할 수 있습니다", frame);
     memWarning->setStyleSheet("color: #E74C3C; font-size: 10px; border: none; background: transparent;");
     memWarning->setWordWrap(true);
     layout->addWidget(memWarning);
 
+    // Direct MB mode
+    directMbCheck_ = new QCheckBox("직접 MB 지정", frame);
+    directMbCheck_->setStyleSheet("color: #C9D1D9; font-size: 12px; border: none; background: transparent;");
+    layout->addWidget(directMbCheck_);
+
+    memMbSpin_ = new QSpinBox(frame);
+    memMbSpin_->setAccessibleDescription("ram_mem_mb_spin");
+    memMbSpin_->setRange(64, static_cast<int>(engine_->get_metrics().memory_used_mb > 0
+        ? engine_->get_metrics().memory_used_mb : 65536));
+    // Estimate available RAM in MB (use a reasonable default; will be capped by engine)
+    memMbSpin_->setRange(64, 65536);
+    memMbSpin_->setValue(4096);
+    memMbSpin_->setSuffix(" MB");
+    memMbSpin_->setEnabled(false);
+    layout->addWidget(memMbSpin_);
+
+    connect(directMbCheck_, &QCheckBox::toggled, this, [this](bool checked) {
+        memMbSpin_->setEnabled(checked);
+        memSlider_->setEnabled(!checked);
+        memValueLabel_->setEnabled(!checked);
+    });
+
     // Passes
-    auto* passesLabel = new QLabel("Number of Passes", frame);
+    auto* passesLabel = new QLabel("패스 횟수", frame);
     passesLabel->setStyleSheet(styles::kSettingsLabel);
     layout->addWidget(passesLabel);
 
@@ -119,7 +141,7 @@ QFrame* RamPanel::createSettingsSection()
 
     layout->addSpacing(20);
 
-    startStopBtn_ = new QPushButton("Start Test", frame);
+    startStopBtn_ = new QPushButton("테스트 시작", frame);
     startStopBtn_->setAccessibleDescription("ram_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
@@ -145,7 +167,7 @@ QFrame* RamPanel::createMonitoringSection()
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
 
-    auto* title = new QLabel("RAM Test Monitoring", frame);
+    auto* title = new QLabel("RAM 테스트 모니터링", frame);
     title->setStyleSheet(styles::kSectionTitle);
     layout->addWidget(title);
 
@@ -167,20 +189,20 @@ QFrame* RamPanel::createMonitoringSection()
         return v;
     };
 
-    bandwidthLabel_ = createMetric("Bandwidth", "-- GB/s");
+    bandwidthLabel_ = createMetric("대역폭", "-- GB/s");
     bandwidthLabel_->setAccessibleDescription("ram_bandwidth_value");
     metricsLayout->addWidget(bandwidthLabel_->parentWidget());
-    errorsLabel_ = createMetric("Errors Found", "0");
+    errorsLabel_ = createMetric("발견된 오류", "0");
     errorsLabel_->setAccessibleDescription("ram_errors_value");
     metricsLayout->addWidget(errorsLabel_->parentWidget());
-    progressLabel_ = createMetric("Pass", "0 / 0");
+    progressLabel_ = createMetric("패스", "0 / 0");
     progressLabel_->setAccessibleDescription("ram_progress_label");
     metricsLayout->addWidget(progressLabel_->parentWidget());
 
     layout->addLayout(metricsLayout);
 
     // Test progress
-    auto* progressTitle = new QLabel("Test Progress", frame);
+    auto* progressTitle = new QLabel("테스트 진행률", frame);
     progressTitle->setStyleSheet(styles::kPanelSubtitle);
     layout->addWidget(progressTitle);
 
@@ -194,7 +216,7 @@ QFrame* RamPanel::createMonitoringSection()
 
     // Bandwidth chart
     bandwidthChart_ = new RealtimeChart(frame);
-    bandwidthChart_->setTitle("Memory Bandwidth");
+    bandwidthChart_->setTitle("메모리 대역폭");
     bandwidthChart_->setUnit("GB/s");
     bandwidthChart_->setLineColor(QColor(142, 68, 173));
     bandwidthChart_->setMinimumHeight(200);
@@ -208,7 +230,7 @@ void RamPanel::onStartStopClicked()
     isRunning_ = !isRunning_;
 
     if (isRunning_) {
-        startStopBtn_->setText("Stop Test");
+        startStopBtn_->setText("테스트 중지");
         startStopBtn_->setStyleSheet(
             styles::kStopButton
         );
@@ -229,12 +251,18 @@ void RamPanel::onStartStopClicked()
         double memory_pct = memSlider_->value() / 100.0;
         int passes = passesSpinBox_->value();
 
+        if (directMbCheck_->isChecked()) {
+            engine_->set_memory_mb(static_cast<uint64_t>(memMbSpin_->value()));
+        } else {
+            engine_->set_memory_mb(0); // Use percentage mode
+        }
+
         engine_->start(pattern, memory_pct, passes);
         monitorTimer_->start(500);
 
         emit testStartRequested(patternCombo_->currentText(), memSlider_->value(), passes);
     } else {
-        startStopBtn_->setText("Start Test");
+        startStopBtn_->setText("테스트 시작");
         startStopBtn_->setStyleSheet(styles::kStartButton);
 
         engine_->stop();
@@ -254,7 +282,7 @@ void RamPanel::updateMonitoring()
         // Engine stopped on its own (all passes completed)
         if (isRunning_) {
             isRunning_ = false;
-            startStopBtn_->setText("Start Test");
+            startStopBtn_->setText("테스트 시작");
             startStopBtn_->setStyleSheet(styles::kStartButton);
             monitorTimer_->stop();
         }

@@ -9,6 +9,7 @@
 #include <QProgressBar>
 #include <QTimer>
 #include <QFrame>
+#include <QCheckBox>
 #include <memory>
 
 namespace occt {
@@ -53,6 +54,10 @@ private:
     QLabel* memValueLabel_ = nullptr;
     QSpinBox* passesSpinBox_ = nullptr;
     QPushButton* startStopBtn_ = nullptr;
+
+    // Direct MB mode
+    QCheckBox* directMbCheck_ = nullptr;
+    QSpinBox* memMbSpin_ = nullptr;
 
     // Monitoring
     RealtimeChart* bandwidthChart_ = nullptr;
