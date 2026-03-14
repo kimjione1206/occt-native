@@ -68,7 +68,7 @@ QFrame* RamPanel::createSettingsSection()
     layout->addWidget(patternLabel);
 
     patternCombo_ = new QComboBox(frame);
-    patternCombo_->setObjectName("ram_pattern_combo");
+    patternCombo_->setAccessibleDescription("ram_pattern_combo");
     patternCombo_->addItems({
         "March C-",
         "Walking Ones",
@@ -86,13 +86,13 @@ QFrame* RamPanel::createSettingsSection()
 
     auto* memRow = new QHBoxLayout();
     memSlider_ = new QSlider(Qt::Horizontal, frame);
-    memSlider_->setObjectName("ram_mem_slider");
+    memSlider_->setAccessibleDescription("ram_mem_slider");
     memSlider_->setRange(10, 90);
     memSlider_->setValue(50);
     connect(memSlider_, &QSlider::valueChanged, this, &RamPanel::onMemSliderChanged);
 
     memValueLabel_ = new QLabel("50%", frame);
-    memValueLabel_->setObjectName("ram_mem_value");
+    memValueLabel_->setAccessibleDescription("ram_mem_value");
     memValueLabel_->setFixedWidth(40);
     memValueLabel_->setAlignment(Qt::AlignCenter);
     memValueLabel_->setStyleSheet(styles::kStatusIdle);
@@ -112,7 +112,7 @@ QFrame* RamPanel::createSettingsSection()
     layout->addWidget(passesLabel);
 
     passesSpinBox_ = new QSpinBox(frame);
-    passesSpinBox_->setObjectName("ram_passes_spin");
+    passesSpinBox_->setAccessibleDescription("ram_passes_spin");
     passesSpinBox_->setRange(1, 100);
     passesSpinBox_->setValue(3);
     layout->addWidget(passesSpinBox_);
@@ -120,7 +120,7 @@ QFrame* RamPanel::createSettingsSection()
     layout->addSpacing(20);
 
     startStopBtn_ = new QPushButton("Start Test", frame);
-    startStopBtn_->setObjectName("ram_start_stop_btn");
+    startStopBtn_->setAccessibleDescription("ram_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
@@ -168,13 +168,13 @@ QFrame* RamPanel::createMonitoringSection()
     };
 
     bandwidthLabel_ = createMetric("Bandwidth", "-- GB/s");
-    bandwidthLabel_->setObjectName("ram_bandwidth_value");
+    bandwidthLabel_->setAccessibleDescription("ram_bandwidth_value");
     metricsLayout->addWidget(bandwidthLabel_->parentWidget());
     errorsLabel_ = createMetric("Errors Found", "0");
-    errorsLabel_->setObjectName("ram_errors_value");
+    errorsLabel_->setAccessibleDescription("ram_errors_value");
     metricsLayout->addWidget(errorsLabel_->parentWidget());
     progressLabel_ = createMetric("Pass", "0 / 0");
-    progressLabel_->setObjectName("ram_progress_label");
+    progressLabel_->setAccessibleDescription("ram_progress_label");
     metricsLayout->addWidget(progressLabel_->parentWidget());
 
     layout->addLayout(metricsLayout);
@@ -185,7 +185,7 @@ QFrame* RamPanel::createMonitoringSection()
     layout->addWidget(progressTitle);
 
     testProgress_ = new QProgressBar(frame);
-    testProgress_->setObjectName("ram_progress_bar");
+    testProgress_->setAccessibleDescription("ram_progress_bar");
     testProgress_->setRange(0, 100);
     testProgress_->setValue(0);
     testProgress_->setTextVisible(true);

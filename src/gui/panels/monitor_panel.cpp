@@ -107,7 +107,7 @@ void MonitorPanel::setupUi()
 
     // WHEA error count
     wheaCountLabel_ = new QLabel("WHEA Errors: 0", this);
-    wheaCountLabel_->setObjectName("monitor_whea_count");
+    wheaCountLabel_->setAccessibleDescription("monitor_whea_count");
     wheaCountLabel_->setStyleSheet(
         "color: #3FB950; font-size: 13px; font-weight: bold; background: transparent; padding: 4px 12px;");
     titleRow->addWidget(wheaCountLabel_);
@@ -153,7 +153,7 @@ void MonitorPanel::setupUi()
     treeLayout->addWidget(treeTitle);
 
     sensorTree_ = new QTreeWidget(treeFrame);
-    sensorTree_->setObjectName("monitor_sensor_tree");
+    sensorTree_->setAccessibleDescription("monitor_sensor_tree");
     sensorTree_->setHeaderLabels({"Sensor", "Value", "Min", "Max"});
     sensorTree_->header()->setStretchLastSection(false);
     sensorTree_->header()->setMinimumSectionSize(50);
@@ -188,7 +188,7 @@ void MonitorPanel::setupUi()
     chartLayout->setSpacing(12);
 
     sensorNameLabel_ = new QLabel("Select a sensor", chartFrame);
-    sensorNameLabel_->setObjectName("monitor_sensor_name");
+    sensorNameLabel_->setAccessibleDescription("monitor_sensor_name");
     sensorNameLabel_->setStyleSheet(styles::kSectionTitle);
     chartLayout->addWidget(sensorNameLabel_);
 
@@ -211,16 +211,16 @@ void MonitorPanel::setupUi()
     };
 
     sensorValueLabel_ = createStat("Current");
-    sensorValueLabel_->setObjectName("monitor_sensor_value");
+    sensorValueLabel_->setAccessibleDescription("monitor_sensor_value");
     statsLayout->addWidget(sensorValueLabel_->parentWidget());
     sensorMinLabel_ = createStat("Min");
-    sensorMinLabel_->setObjectName("monitor_sensor_min");
+    sensorMinLabel_->setAccessibleDescription("monitor_sensor_min");
     statsLayout->addWidget(sensorMinLabel_->parentWidget());
     sensorMaxLabel_ = createStat("Max");
-    sensorMaxLabel_->setObjectName("monitor_sensor_max");
+    sensorMaxLabel_->setAccessibleDescription("monitor_sensor_max");
     statsLayout->addWidget(sensorMaxLabel_->parentWidget());
     sensorAvgLabel_ = createStat("Average");
-    sensorAvgLabel_->setObjectName("monitor_sensor_avg");
+    sensorAvgLabel_->setAccessibleDescription("monitor_sensor_avg");
     statsLayout->addWidget(sensorAvgLabel_->parentWidget());
 
     chartLayout->addLayout(statsLayout);

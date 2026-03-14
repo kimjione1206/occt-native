@@ -39,7 +39,7 @@ void ResultsPanel::setupUi()
 
     // Results table
     resultsTable_ = new QTableWidget(this);
-    resultsTable_->setObjectName("results_table");
+    resultsTable_->setAccessibleDescription("results_table");
     resultsTable_->setColumnCount(7);
     resultsTable_->setHorizontalHeaderLabels({
         "Timestamp", "Test Type", "Mode", "Duration", "Score", "Errors", "Result"
@@ -76,7 +76,7 @@ void ResultsPanel::setupUi()
     detailsLayout->addWidget(detailsTitle);
 
     detailsLabel_ = new QLabel("Select a result to view details", detailsFrame);
-    detailsLabel_->setObjectName("results_details");
+    detailsLabel_->setAccessibleDescription("results_details");
     detailsLabel_->setStyleSheet("color: #8B949E; font-size: 12px; border: none; background: transparent;");
     detailsLabel_->setWordWrap(true);
     detailsLayout->addWidget(detailsLabel_);
@@ -85,7 +85,7 @@ void ResultsPanel::setupUi()
 
     // Summary
     summaryLabel_ = new QLabel("No test results yet", this);
-    summaryLabel_->setObjectName("results_summary");
+    summaryLabel_->setAccessibleDescription("results_summary");
     summaryLabel_->setStyleSheet("color: #8B949E; font-size: 12px; background: transparent;");
     mainLayout->addWidget(summaryLabel_);
 }

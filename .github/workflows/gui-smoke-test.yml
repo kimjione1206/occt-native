@@ -190,7 +190,7 @@ jobs:
                 $win = Get-AppWindow
                 if (!$win) { return "NOT_FOUND" }
                 $cond = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $accessibleName)
+                    [System.Windows.Automation.AutomationElement]::HelpTextProperty, $accessibleName)
                 $el = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
                 if ($el) {
                     return $el.Current.Name
@@ -339,7 +339,7 @@ jobs:
             $win = Get-AppWindow
             if ($win) {
                 $cond = New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ram_progress_bar")
+                    [System.Windows.Automation.AutomationElement]::HelpTextProperty, "ram_progress_bar")
                 $el = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
                 if ($el) {
                     $rvp = $el.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
