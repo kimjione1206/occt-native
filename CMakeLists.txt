@@ -270,6 +270,28 @@ if(WIN32 AND OCCT_PORTABLE)
     include(CPack)
 endif()
 
+# --- LHM Sensor Reader Helper (Windows only) ---
+if(WIN32)
+    option(OCCT_BUILD_LHM_HELPER "Build lhm-sensor-reader helper (requires .NET 8 SDK)" ON)
+    if(OCCT_BUILD_LHM_HELPER)
+        find_program(DOTNET_EXE dotnet)
+        if(DOTNET_EXE)
+            set(LHM_PROJECT "${CMAKE_SOURCE_DIR}/tools/lhm-sensor-reader/lhm-sensor-reader.csproj")
+            set(LHM_OUTPUT_DIR "${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/tools")
+            add_custom_target(lhm_sensor_reader ALL
+                COMMAND ${DOTNET_EXE} publish "${LHM_PROJECT}"
+                    -c Release -r win-x64 --self-contained true
+                    -p:PublishSingleFile=true -p:PublishTrimmed=true -p:TrimMode=partial
+                    -o "${LHM_OUTPUT_DIR}"
+                COMMENT "Building lhm-sensor-reader helper..."
+                VERBATIM
+            )
+        else()
+            message(WARNING "dotnet SDK not found — lhm-sensor-reader will not be built. CPU temperature may show N/A.")
+        endif()
+    endif()
+endif()
+
 # ─── 빌드 요약 ───────────────────────────────────────────────────────────────
 message(STATUS "")
 message(STATUS "╔══════════════════════════════════════════════╗")

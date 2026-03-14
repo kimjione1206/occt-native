@@ -25,6 +25,7 @@ struct LhmBridge::Impl {
         QStringList search_paths = {
             QCoreApplication::applicationDirPath(),
             QCoreApplication::applicationDirPath() + "/tools",
+            QCoreApplication::applicationDirPath() + "/../tools",
             QDir::currentPath()
         };
 

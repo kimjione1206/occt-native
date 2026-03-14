@@ -71,6 +71,19 @@ jobs:
           modules: 'qtcharts'
           cache: true
 
+      # ── .NET 8 SDK & LHM Helper ──────────────────────────────────────────
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build LHM Sensor Reader
+        run: |
+          dotnet publish tools/lhm-sensor-reader/lhm-sensor-reader.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:PublishTrimmed=true -p:TrimMode=partial `
+            -o build/Release/tools
+
       # ── Configure CMake with MSVC ────────────────────────────────────────
       - name: Configure CMake
         run: >

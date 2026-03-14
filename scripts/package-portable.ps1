@@ -90,6 +90,17 @@ foreach ($lf in $licenseFiles) {
     }
 }
 
+# Copy LHM sensor reader helper if it exists
+$lhmExe = Join-Path $BuildDir "$BuildType\tools\lhm-sensor-reader.exe"
+if (Test-Path $lhmExe) {
+    $toolsDir = Join-Path $StagingDir "tools"
+    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+    Copy-Item -Path $lhmExe -Destination "$toolsDir/" -Force
+    Write-Host "  Copied: lhm-sensor-reader.exe -> tools/"
+} else {
+    Write-Host "  Note: lhm-sensor-reader.exe not found, skipping."
+}
+
 Write-Host "  Staging: $StagingDir"
 
 # ── Run windeployqt ────────────────────────────────────────────────────────
