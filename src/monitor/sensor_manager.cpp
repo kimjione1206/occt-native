@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cstring>
 
-#include <QDebug>
 #include <QMetaObject>
 #include <QThread>
 
@@ -945,6 +944,8 @@ void SensorManager::poll_wmi() {
     }
 
     if (!have_lhm_data) {
+        // Early exit check for fast shutdown
+        if (!running_.load()) return;
         // --- Query ROOT\WMI for thermal zones (cached connection) ---
         int zone_idx = 0;
         if (wmi_svc_root_wmi_) {
@@ -1053,6 +1054,7 @@ void SensorManager::poll_wmi() {
             }
         }
 
+        if (!running_.load()) return;
         // --- Query ROOT\CIMV2 for fans, CPU info, battery (cached connection) ---
         if (wmi_svc_cimv2_) {
             auto* cimv2 = static_cast<IWbemServices*>(wmi_svc_cimv2_);
@@ -1188,6 +1190,7 @@ void SensorManager::poll_wmi() {
         }
     } // end if (!have_lhm_data)
 
+    if (!running_.load()) return;
     // --- A) CPU usage via GetSystemTimes() (always collected) ---
     double cpu_pct = 0.0;
     {
