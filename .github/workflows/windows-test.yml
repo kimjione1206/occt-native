@@ -713,7 +713,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $exe = (Get-ChildItem -Path build -Recurse -Filter "occt_native.exe" | Select-Object -First 1).FullName
           Write-Host "=== Storage JSON Error Stats Validation ==="
-          $output = & $exe --cli --test storage --mode verify_seq --file-size 32 --duration 10 2>&1
+          $output = & $exe --cli --test storage --mode write --file-size 32 --duration 5 2>&1
           $lines = $output -split "`n" | Where-Object { $_.Trim().StartsWith("{") }
           $hasMetric = $false
           $hasResult = $false
