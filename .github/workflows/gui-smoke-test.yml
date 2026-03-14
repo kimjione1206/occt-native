@@ -387,9 +387,9 @@ jobs:
 
         # ── 2. CPU Test ──
         Write-Host "`n=== 2. CPU Test ==="
-        Click-SidebarPanel "CPU Test"
+        Click-SidebarPanel "CPU 테스트"
         Take-Screenshot "02_cpu_idle"
-        Click-ButtonByName "Start Test"
+        Click-ButtonByName "테스트 시작"
         Start-Sleep -Seconds 3
         Take-Screenshot "03_cpu_running_3s"
         Start-Sleep -Seconds 5
@@ -399,26 +399,26 @@ jobs:
         Write-Host "  -- CPU UI Value Checks --"
         $v = Read-UIValue "GFLOPS"
         Assert-Value "GFLOPS" $v { $v -ne "NOT_FOUND" -and [double]::TryParse(($v -replace '[^\d.]',''), [ref]$null) -and [double]($v -replace '[^\d.]','') -gt 0 }
-        $v = Read-UIValue "Errors"
+        $v = Read-UIValue "오류"
         Assert-Value "Errors" $v { $v -eq "0" }
-        $v = Read-UIValue "Power"
+        $v = Read-UIValue "전력"
         Assert-Value "Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
-        $v = Read-UIValue "Temperature"
+        $v = Read-UIValue "온도"
         # CI runners lack temp sensors, so N/A is expected. Just verify label exists.
         Assert-Value "Temperature" $v { $v -ne "NOT_FOUND" }
         if ($v -eq "N/A") { Write-Host "  (N/A expected: CI runner has no temperature sensor)" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "05_cpu_running_13s"
-        Click-ButtonByName "Stop Test"
+        Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
         Take-Screenshot "06_cpu_stopped"
 
         # ── 3. RAM Test ──
         Write-Host "`n=== 3. RAM Test ==="
-        Click-SidebarPanel "RAM Test"
+        Click-SidebarPanel "RAM 테스트"
         Take-Screenshot "07_ram_idle"
-        Click-ButtonByName "Start Test"
+        Click-ButtonByName "테스트 시작"
         Start-Sleep -Seconds 3
         Take-Screenshot "08_ram_running_3s"
         Start-Sleep -Seconds 5
@@ -426,22 +426,22 @@ jobs:
 
         # -- RAM value assertions (label-name based) --
         Write-Host "  -- RAM UI Value Checks --"
-        $v = Read-UIValue "Bandwidth"
+        $v = Read-UIValue "대역폭"
         Assert-Value "RAM Bandwidth" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
-        $v = Read-UIValue "Errors Found"
+        $v = Read-UIValue "발견된 오류"
         Assert-Value "RAM Errors" $v { $v -ne "NOT_FOUND" }
 
         Start-Sleep -Seconds 5
         Take-Screenshot "10_ram_running_13s"
-        Click-ButtonByName "Stop Test"
+        Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
         Take-Screenshot "11_ram_stopped"
 
         # ── 4. Storage Test ──
         Write-Host "`n=== 4. Storage Test ==="
-        Click-SidebarPanel "Storage Test"
+        Click-SidebarPanel "저장장치 테스트"
         Take-Screenshot "12_storage_idle"
-        Click-ButtonByName "Start Test"
+        Click-ButtonByName "테스트 시작"
         Start-Sleep -Seconds 3
         Take-Screenshot "13_storage_running_3s"
         Start-Sleep -Seconds 5
@@ -451,26 +451,26 @@ jobs:
         Write-Host "  -- Storage UI Value Checks --"
         $v = Read-UIValue "IOPS"
         Assert-Value "Storage IOPS" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
-        $v = Read-UIValue "Throughput"
+        $v = Read-UIValue "처리량"
         Assert-Value "Storage Throughput" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
-        Click-ButtonByName "Stop Test"
+        Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
         Take-Screenshot "15_storage_stopped"
 
         # ── 5. GPU Panel ──
         Write-Host "`n=== 5. GPU Test ==="
-        Click-SidebarPanel "GPU Test"
+        Click-SidebarPanel "GPU 테스트"
         Take-Screenshot "16_gpu_panel"
-        Click-ButtonByName "Start Test"
+        Click-ButtonByName "테스트 시작"
         Start-Sleep -Seconds 2
         Take-Screenshot "17_gpu_start_attempt"
 
         # ── 6. PSU Test ──
         Write-Host "`n=== 6. PSU Test ==="
-        Click-SidebarPanel "PSU Test"
+        Click-SidebarPanel "PSU 테스트"
         Take-Screenshot "18_psu_idle"
-        Click-ButtonByName "Start Test"
+        Click-ButtonByName "테스트 시작"
         Start-Sleep -Seconds 3
         Take-Screenshot "19_psu_running_3s"
         Start-Sleep -Seconds 5
@@ -478,18 +478,18 @@ jobs:
 
         # -- PSU value assertions (label-name based) --
         Write-Host "  -- PSU UI Value Checks --"
-        $v = Read-UIValue "Total Power"
+        $v = Read-UIValue "총 전력"
         Assert-Value "PSU Total Power" $v { $v -ne "NOT_FOUND" -and $v -ne "" }
 
-        Click-ButtonByName "Stop Test"
+        Click-ButtonByName "테스트 중지"
         Start-Sleep -Seconds 2
         Take-Screenshot "21_psu_stopped"
 
         # ── 7. Benchmark ──
         Write-Host "`n=== 7. Benchmark ==="
-        Click-SidebarPanel "Benchmark"
+        Click-SidebarPanel "벤치마크"
         Take-Screenshot "22_benchmark_idle"
-        Click-ButtonByName "Run Benchmark"
+        Click-ButtonByName "벤치마크 실행"
         Start-Sleep -Seconds 5
         Take-Screenshot "23_benchmark_running_5s"
         Start-Sleep -Seconds 10
@@ -500,7 +500,7 @@ jobs:
         # Benchmark labels: "L1" value is after the "L1" label (under "Cache Latency" section)
         $v = Read-UIValue "L1"
         Assert-Value "Bench L1 Latency" $v { $v -ne "NOT_FOUND" -and $v -ne "--" }
-        $v = Read-UIValue "Read Bandwidth"
+        $v = Read-UIValue "읽기 대역폭"
         Assert-Value "Bench Read BW" $v { $v -ne "NOT_FOUND" -and $v -ne "--" }
 
         Start-Sleep -Seconds 15
@@ -508,7 +508,7 @@ jobs:
 
         # ── 8. Monitoring ──
         Write-Host "`n=== 8. Monitoring ==="
-        Click-SidebarPanel "Monitoring"
+        Click-SidebarPanel "모니터링"
         Start-Sleep -Seconds 3
         Take-Screenshot "26_monitor"
 
@@ -536,13 +536,13 @@ jobs:
 
         # ── 9. System Info ──
         Write-Host "`n=== 9. System Info ==="
-        Click-SidebarPanel "System Info"
+        Click-SidebarPanel "시스템 정보"
         Start-Sleep -Seconds 2
         Take-Screenshot "27_sysinfo"
 
         # -- System Info value read (log only) --
         Write-Host "  -- System Info UI Value Checks --"
-        $v = Read-UIValue "Model"
+        $v = Read-UIValue "모델"
         Write-Host "  [UI-VALUE] CPU Model = '$v'"
         if ($v -ne "NOT_FOUND") {
             Assert-Value "SysInfo CPU Model" $v { $v -ne "" }
@@ -550,13 +550,13 @@ jobs:
 
         # ── 10. Schedule ──
         Write-Host "`n=== 10. Schedule ==="
-        Click-SidebarPanel "Schedule"
+        Click-SidebarPanel "스케줄"
         Start-Sleep -Seconds 2
         Take-Screenshot "28_schedule"
 
         # ── 11. Dashboard final ──
         Write-Host "`n=== 11. Dashboard Final ==="
-        Click-SidebarPanel "Dashboard"
+        Click-SidebarPanel "대시보드"
         Start-Sleep -Seconds 2
         Take-Screenshot "29_dashboard_final"
 
