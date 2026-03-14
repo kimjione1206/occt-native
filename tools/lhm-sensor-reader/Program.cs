@@ -4,18 +4,19 @@ using LibreHardwareMonitor.Hardware;
 
 namespace LhmSensorReader;
 
+// Source-generated JSON serializer context (works with PublishTrimmed)
+[JsonSerializable(typeof(SensorOutput))]
+[JsonSerializable(typeof(ErrorOutput))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false)]
+internal partial class AppJsonContext : JsonSerializerContext { }
+
 public class Program
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = false
-    };
-
     public static int Main(string[] args)
     {
-        bool jsonOutput = false;
         bool once = false;
         int loopMs = 0;
 
@@ -24,7 +25,6 @@ public class Program
             switch (args[i])
             {
                 case "--json":
-                    jsonOutput = true;
                     break;
                 case "--once":
                     once = true;
@@ -39,11 +39,9 @@ public class Program
             }
         }
 
-        // Default: same as --json --once
         if (!once && loopMs <= 0)
         {
             once = true;
-            jsonOutput = true;
         }
 
         var computer = new Computer
@@ -61,8 +59,8 @@ public class Program
         }
         catch (Exception ex)
         {
-            var error = new { error = "open_failed", message = ex.Message };
-            Console.WriteLine(JsonSerializer.Serialize(error, JsonOptions));
+            var error = new ErrorOutput { Error = "open_failed", Message = ex.Message };
+            Console.WriteLine(JsonSerializer.Serialize(error, AppJsonContext.Default.ErrorOutput));
             return 2;
         }
 
@@ -73,13 +71,12 @@ public class Program
                 try
                 {
                     var output = CollectSensorData(computer);
-                    var json = JsonSerializer.Serialize(output, JsonOptions);
-                    Console.WriteLine(json);
+                    Console.WriteLine(JsonSerializer.Serialize(output, AppJsonContext.Default.SensorOutput));
                 }
                 catch (Exception ex)
                 {
-                    var error = new { error = "collect_failed", message = ex.Message };
-                    Console.WriteLine(JsonSerializer.Serialize(error, JsonOptions));
+                    var error = new ErrorOutput { Error = "collect_failed", Message = ex.Message };
+                    Console.WriteLine(JsonSerializer.Serialize(error, AppJsonContext.Default.ErrorOutput));
                     return 1;
                 }
                 return 0;
@@ -98,12 +95,11 @@ public class Program
                 var output = CollectSensorData(computer);
                 try
                 {
-                    Console.WriteLine(JsonSerializer.Serialize(output, JsonOptions));
+                    Console.WriteLine(JsonSerializer.Serialize(output, AppJsonContext.Default.SensorOutput));
                     Console.Out.Flush();
                 }
                 catch (IOException)
                 {
-                    // stdout closed (pipe broken)
                     break;
                 }
 
@@ -243,4 +239,13 @@ public class SensorEntry
     [JsonPropertyName("max")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? Max { get; set; }
+}
+
+public class ErrorOutput
+{
+    [JsonPropertyName("error")]
+    public string Error { get; set; } = "";
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
 }
