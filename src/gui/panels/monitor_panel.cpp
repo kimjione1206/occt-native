@@ -107,6 +107,7 @@ void MonitorPanel::setupUi()
 
     // WHEA error count
     wheaCountLabel_ = new QLabel("WHEA Errors: 0", this);
+    wheaCountLabel_->setAccessibleName("monitor_whea_count");
     wheaCountLabel_->setStyleSheet(
         "color: #3FB950; font-size: 13px; font-weight: bold; background: transparent; padding: 4px 12px;");
     titleRow->addWidget(wheaCountLabel_);
@@ -152,6 +153,7 @@ void MonitorPanel::setupUi()
     treeLayout->addWidget(treeTitle);
 
     sensorTree_ = new QTreeWidget(treeFrame);
+    sensorTree_->setAccessibleName("monitor_sensor_tree");
     sensorTree_->setHeaderLabels({"Sensor", "Value", "Min", "Max"});
     sensorTree_->header()->setStretchLastSection(false);
     sensorTree_->header()->setMinimumSectionSize(50);
@@ -186,6 +188,7 @@ void MonitorPanel::setupUi()
     chartLayout->setSpacing(12);
 
     sensorNameLabel_ = new QLabel("Select a sensor", chartFrame);
+    sensorNameLabel_->setAccessibleName("monitor_sensor_name");
     sensorNameLabel_->setStyleSheet(styles::kSectionTitle);
     chartLayout->addWidget(sensorNameLabel_);
 
@@ -208,12 +211,16 @@ void MonitorPanel::setupUi()
     };
 
     sensorValueLabel_ = createStat("Current");
+    sensorValueLabel_->setAccessibleName("monitor_sensor_value");
     statsLayout->addWidget(sensorValueLabel_->parentWidget());
     sensorMinLabel_ = createStat("Min");
+    sensorMinLabel_->setAccessibleName("monitor_sensor_min");
     statsLayout->addWidget(sensorMinLabel_->parentWidget());
     sensorMaxLabel_ = createStat("Max");
+    sensorMaxLabel_->setAccessibleName("monitor_sensor_max");
     statsLayout->addWidget(sensorMaxLabel_->parentWidget());
     sensorAvgLabel_ = createStat("Average");
+    sensorAvgLabel_->setAccessibleName("monitor_sensor_avg");
     statsLayout->addWidget(sensorAvgLabel_->parentWidget());
 
     chartLayout->addLayout(statsLayout);

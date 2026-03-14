@@ -113,14 +113,17 @@ void DashboardPanel::setupUi()
     gaugesTitle->setStyleSheet("color: #C9D1D9; font-size: 16px; font-weight: bold; border: none; background: transparent;");
 
     cpuGauge_ = new CircularGauge(gaugesFrame);
+    cpuGauge_->setAccessibleName("dash_cpu_gauge");
     cpuGauge_->setLabel("CPU");
     cpuGauge_->setValue(0);
 
     ramGauge_ = new CircularGauge(gaugesFrame);
+    ramGauge_->setAccessibleName("dash_ram_gauge");
     ramGauge_->setLabel("RAM");
     ramGauge_->setValue(0);
 
     gpuGauge_ = new CircularGauge(gaugesFrame);
+    gpuGauge_->setAccessibleName("dash_gpu_gauge");
     gpuGauge_->setLabel("GPU");
     gpuGauge_->setValue(0);
 
@@ -167,6 +170,10 @@ QFrame* DashboardPanel::createInfoCard(const QString& title, const QString& valu
     auto* valueLbl = new QLabel(value, card);
     valueLbl->setStyleSheet("color: #F0F6FC; font-size: 15px; font-weight: bold; border: none; background: transparent;");
     valueLbl->setWordWrap(true);
+    if (title == "CPU") valueLbl->setAccessibleName("dash_cpu_model");
+    else if (title == "GPU") valueLbl->setAccessibleName("dash_gpu_model");
+    else if (title == "RAM") valueLbl->setAccessibleName("dash_ram_value");
+    else if (title == "OS") valueLbl->setAccessibleName("dash_os_name");
     layout->addWidget(valueLbl);
 
     auto* detailLbl = new QLabel(detail, card);

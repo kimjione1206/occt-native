@@ -108,6 +108,7 @@ QFrame* PsuPanel::createSettingsSection()
     layout->addSpacing(20);
 
     startStopBtn_ = new QPushButton("Start Test", frame);
+    startStopBtn_->setAccessibleName("psu_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
@@ -160,18 +161,23 @@ QFrame* PsuPanel::createMonitoringSection()
     auto* metricsRow1 = new QHBoxLayout();
     metricsRow1->setSpacing(12);
     totalPowerLabel_ = createMetricCard("Total Power", "0.0 W", "#E74C3C");
+    totalPowerLabel_->setAccessibleName("psu_total_power");
     metricsRow1->addWidget(totalPowerLabel_->parentWidget());
     cpuPowerLabel_ = createMetricCard("CPU Power", "0.0 W", "#3498DB");
+    cpuPowerLabel_->setAccessibleName("psu_cpu_power");
     metricsRow1->addWidget(cpuPowerLabel_->parentWidget());
     gpuPowerLabel_ = createMetricCard("GPU Power", "0.0 W", "#2ECC71");
+    gpuPowerLabel_->setAccessibleName("psu_gpu_power");
     metricsRow1->addWidget(gpuPowerLabel_->parentWidget());
 
     // Row 2: error metrics (2 cards)
     auto* metricsRow2 = new QHBoxLayout();
     metricsRow2->setSpacing(12);
     cpuErrorsLabel_ = createMetricCard("CPU Errors", "0", "#F39C12");
+    cpuErrorsLabel_->setAccessibleName("psu_cpu_errors");
     metricsRow2->addWidget(cpuErrorsLabel_->parentWidget());
     gpuErrorsLabel_ = createMetricCard("GPU Errors", "0", "#F39C12");
+    gpuErrorsLabel_->setAccessibleName("psu_gpu_errors");
     metricsRow2->addWidget(gpuErrorsLabel_->parentWidget());
     metricsRow2->addStretch();
 
@@ -189,10 +195,13 @@ QFrame* PsuPanel::createMonitoringSection()
     };
 
     cpuStatusLabel_ = createStatusLabel("CPU: Idle");
+    cpuStatusLabel_->setAccessibleName("psu_cpu_status");
     statusLayout->addWidget(cpuStatusLabel_);
     gpuStatusLabel_ = createStatusLabel("GPU: Idle");
+    gpuStatusLabel_->setAccessibleName("psu_gpu_status");
     statusLayout->addWidget(gpuStatusLabel_);
     elapsedLabel_ = createStatusLabel("Elapsed: 0s");
+    elapsedLabel_->setAccessibleName("psu_elapsed");
     statusLayout->addWidget(elapsedLabel_);
     statusLayout->addStretch();
 

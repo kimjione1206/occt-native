@@ -75,6 +75,7 @@ QFrame* GpuPanel::createSettingsSection()
     layout->addWidget(gpuLabel);
 
     gpuSelectCombo_ = new QComboBox(frame);
+    gpuSelectCombo_->setAccessibleName("gpu_device_combo");
     // Populate with detected GPUs
     auto gpus = engine_->get_available_gpus();
     if (gpus.empty()) {
@@ -92,6 +93,7 @@ QFrame* GpuPanel::createSettingsSection()
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
+    modeCombo_->setAccessibleName("gpu_mode_combo");
     modeCombo_->addItems({
         "Matrix FP32",
         "Matrix FP64",
@@ -184,6 +186,7 @@ QFrame* GpuPanel::createSettingsSection()
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
+    durationCombo_->setAccessibleName("gpu_duration_combo");
     durationCombo_->addItem("1 minute", 60);
     durationCombo_->addItem("5 minutes", 300);
     durationCombo_->addItem("10 minutes", 600);
@@ -196,6 +199,7 @@ QFrame* GpuPanel::createSettingsSection()
     layout->addSpacing(20);
 
     startStopBtn_ = new QPushButton("Start Test", frame);
+    startStopBtn_->setAccessibleName("gpu_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
@@ -226,6 +230,7 @@ QFrame* GpuPanel::createMonitoringSection()
 
     // Status banner (hidden by default, shown when GPU backend unavailable or on error)
     statusBanner_ = new QLabel(frame);
+    statusBanner_->setAccessibleName("gpu_status");
     statusBanner_->setStyleSheet(styles::kWarningBanner);
     statusBanner_->setWordWrap(true);
     statusBanner_->setVisible(false);
@@ -237,6 +242,7 @@ QFrame* GpuPanel::createMonitoringSection()
 
     // GPU usage gauge
     gpuUsageGauge_ = new CircularGauge(frame);
+    gpuUsageGauge_->setAccessibleName("gpu_usage_gauge");
     gpuUsageGauge_->setLabel("GPU Usage");
     gpuUsageGauge_->setFixedSize(140, 140);
     metricsLayout->addWidget(gpuUsageGauge_);
@@ -262,16 +268,22 @@ QFrame* GpuPanel::createMonitoringSection()
     };
 
     gflopsLabel_ = createMetricCard("GFLOPS", "0.00");
+    gflopsLabel_->setAccessibleName("gpu_gflops_value");
     metricsGrid->addWidget(gflopsLabel_->parentWidget());
     tempLabel_ = createMetricCard("Temperature", "-- C");
+    tempLabel_->setAccessibleName("gpu_temp_value");
     metricsGrid->addWidget(tempLabel_->parentWidget());
     vramLabel_ = createMetricCard("VRAM Used", "-- %");
+    vramLabel_->setAccessibleName("gpu_vram_usage");
     metricsGrid->addWidget(vramLabel_->parentWidget());
     fpsLabel_ = createMetricCard("FPS", "--");
+    fpsLabel_->setAccessibleName("gpu_fps_value");
     metricsGrid->addWidget(fpsLabel_->parentWidget());
     artifactLabel_ = createMetricCard("Artifacts", "0");
+    artifactLabel_->setAccessibleName("gpu_artifact_count");
     metricsGrid->addWidget(artifactLabel_->parentWidget());
     vramErrorsLabel_ = createMetricCard("VRAM Errors", "0");
+    vramErrorsLabel_->setAccessibleName("gpu_vram_errors");
     metricsGrid->addWidget(vramErrorsLabel_->parentWidget());
 
     metricsLayout->addLayout(metricsGrid, 1);
@@ -283,6 +295,7 @@ QFrame* GpuPanel::createMonitoringSection()
     layout->addWidget(vramTitle);
 
     vramBar_ = new QProgressBar(frame);
+    vramBar_->setAccessibleName("gpu_vram_bar");
     vramBar_->setRange(0, 100);
     vramBar_->setValue(0);
     vramBar_->setTextVisible(true);
@@ -291,6 +304,7 @@ QFrame* GpuPanel::createMonitoringSection()
 
     // GFLOPS chart
     gflopsChart_ = new RealtimeChart(frame);
+    gflopsChart_->setAccessibleName("gpu_gflops_chart");
     gflopsChart_->setTitle("GPU Performance Over Time");
     gflopsChart_->setUnit("GFLOPS");
     gflopsChart_->setLineColor(QColor(41, 128, 185));
