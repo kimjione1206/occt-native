@@ -434,15 +434,6 @@ uint64_t stress_avx_nofma(uint64_t duration_ns) {
     return ops;
 }
 
-// Pre-compute expected value using scalar mul+add (NO std::fma, matching non-FMA path)
-static double compute_scalar_expected_nofma() {
-    double acc = VERIFY_SEED;
-    for (int i = 0; i < VERIFY_ITERATIONS; ++i) {
-        acc = acc * VERIFY_MUL + VERIFY_ADD;
-    }
-    return acc;
-}
-
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx")))
 #endif
