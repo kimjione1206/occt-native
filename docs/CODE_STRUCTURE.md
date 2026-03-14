@@ -1,7 +1,7 @@
 # OCCT Native - 전체 코드 구조
 
 > 이 문서는 프로젝트 수정 시 반드시 참고해야 하는 코드 구조 레퍼런스입니다.
-> 최종 업데이트: 2026-03-11 (런타임 수정 + GUI 스모크 테스트 반영)
+> 최종 업데이트: 2026-03-14 (CPU AUTO/AVX_FLOAT 모드, 유니코드 스토리지, AMD ADL, LHM 재시도, lhm-sensor-reader, GUI 멀티시리즈 차트/트레이/단축키/사운드, 한국어 UI, 파일 로깅)
 
 ## 프로젝트 개요
 
@@ -26,7 +26,7 @@ occt-native/
 │   │   ├── storage_engine.h/cpp# 스토리지 I/O
 │   │   ├── psu_engine.h/cpp    # PSU (CPU+GPU 동시)
 │   │   ├── cpu/                # CPU 서브모듈
-│   │   │   ├── avx_stress.h/cpp    # SSE/AVX2/AVX512/NEON FMA
+│   │   │   ├── avx_stress.h/cpp    # SSE/AVX2/AVX512/AVX_FLOAT/NEON FMA (+stress_avx_nofma)
 │   │   │   ├── error_verifier.h/cpp# IEEE 754 검증
 │   │   │   ├── linpack.h/cpp       # DGEMM 행렬연산
 │   │   │   └── prime.h/cpp         # 소수 검증
@@ -48,11 +48,11 @@ occt-native/
 │   │   ├── sensor_model.h/cpp      # 하드웨어 트리 구조
 │   │   ├── system_info.h/cpp       # 시스템 사양 수집
 │   │   ├── whea_monitor.h/cpp      # Windows WHEA 이벤트
-│   │   └── lhm_bridge.h/cpp       # LibreHardwareMonitor 연동
+│   │   └── lhm_bridge.h/cpp       # LibreHardwareMonitor 연동 (30s 타임아웃, 5회 재시도, fail_count_, 파일 로깅)
 │   ├── safety/                 # 안전 시스템
 │   │   └── guardian.h/cpp          # 온도/전력 리밋 → 긴급정지
 │   ├── gui/                    # Qt GUI
-│   │   ├── main_window.h/cpp       # 메인 윈도우
+│   │   ├── main_window.h/cpp       # 메인 윈도우 (트레이 아이콘, 단축키 Ctrl+1~6/Esc, stopAllTests(), 사운드 알림)
 │   │   ├── panels/             # 12개 패널
 │   │   │   ├── panel_styles.h           # 공용 스타일 상수 (12개 패널 공유)
 │   │   │   ├── dashboard_panel.h/cpp   # 대시보드 (게이지)
@@ -68,7 +68,7 @@ occt-native/
 │   │   │   ├── sysinfo_panel.h/cpp     # 시스템 정보
 │   │   │   └── results_panel.h/cpp     # 결과 조회
 │   │   └── widgets/            # 공용 위젯
-│   │       ├── realtime_chart.h/cpp    # 실시간 차트
+│   │       ├── realtime_chart.h/cpp    # 실시간 차트 (멀티시리즈: ChartSeries, addSeries(), 범례)
 │   │       └── circular_gauge.h/cpp    # 원형 게이지
 │   ├── cli/                    # CLI 인터페이스
 │   │   ├── cli_args.h/cpp          # 인자 파싱 (70+ 옵션)
@@ -93,12 +93,17 @@ occt-native/
 │       └── portable_paths.h/cpp    # 포터블 경로
 ├── tests/                      # 단위 테스트
 ├── resources/                  # QRC, 스타일시트
-├── .github/workflows/          # CI/CD
+├── tools/
+│   └── lhm-sensor-reader/         # C# LHM 헬퍼 (JsonSerializerContext 소스 생성, self-contained ~15-20MB)
+├── logs/                          # 런타임 로그 출력 디렉토리
+│   ├── lhm_bridge.log             # LHM 브리지 로그
+│   └── storage_engine.log         # 스토리지 엔진 로그
+├── .github/workflows/             # CI/CD
 │   ├── windows-test.yml            # 46개 Windows 테스트
-│   ├── build-windows.yml           # 포터블 릴리즈 빌드
-│   ├── build.yml                   # 멀티플랫폼 빌드
+│   ├── build-windows.yml           # 포터블 릴리즈 빌드 (.NET SDK + LHM 헬퍼 빌드 포함)
+│   ├── build.yml                   # 멀티플랫폼 빌드 (.NET SDK + LHM 헬퍼 빌드 포함)
 │   ├── gpu-test.yml                # GPU 테스트
-│   └── gui-smoke-test.yml          # GUI 스크린샷 + CLI 로그 테스트
+│   └── gui-smoke-test.yml          # GUI 스크린샷 + UI Automation (~94 위젯, 13 assertions) + LHM 헬퍼 빌드
 └── docs/
     └── CODE_STRUCTURE.md           # 이 문서
 ```
@@ -115,10 +120,10 @@ start(mode, ...) → is_running() == true
 
 | 엔진 | 모드 수 | 스레드 구조 | 검증 방식 |
 |------|---------|------------|----------|
-| CPU | 8 (AVX2, AVX512, SSE, Linpack, Prime...) | N workers + metrics | IEEE 754 FMA 체인 비트 비교 |
+| CPU | 10 (AVX2, AVX512, SSE, AVX_FLOAT, AUTO, Linpack, Prime...) | N workers + metrics | IEEE 754 FMA 체인 비트 비교 (AVX_FLOAT: 순수 AVX 256-bit, FMA 미사용) |
 | GPU | 8 (Matrix, FMA, Trig, VRAM, Vulkan...) | 1 worker + metrics | Artifact Detector (픽셀 비교) |
 | RAM | 6 (March C-, Walking 1/0, Checker...) | 1 worker | 패턴 쓰기 → 읽기 비교 |
-| Storage | 9 (Seq/Rand R/W, Verify, Fill...) | 1 worker + I/O | CRC32C + 블록 헤더 검증 (duration_secs 지원) |
+| Storage | 9 (Seq/Rand R/W, Verify, Fill...) | 1 worker + I/O | CRC32C + 블록 헤더 검증 (duration_secs 지원, 유니코드 경로, 파일 로깅) |
 | PSU | 3 (Steady, Spike, Ramp) | CPU+GPU 동시 | 하위 엔진 에러 집계 (SensorManager 연동) |
 
 ## GUI 아키텍처
@@ -138,6 +143,9 @@ MainWindow
 │   ├── ramPanel->engine()
 │   ├── storagePanel->engine()
 │   └── psuPanel->engine()
+├── trayIcon_ (QSystemTrayIcon) → 시스템 트레이 아이콘
+├── keyboard shortcuts (Ctrl+1~6 패널 전환, Escape → stopAllTests())
+├── sound alerts (playTestCompleteSound(), playTestErrorSound())
 ├── sidebar_ (12 nav buttons) → setActiveTab()
 └── contentStack_ (QStackedWidget, 12 panels)
 ```
@@ -153,7 +161,9 @@ MainWindow
 ```
 SensorManager::poll_thread (500ms)
   ├── [Windows] LHM bridge (lhm_bridge_) → 정확한 하드웨어 모니터링 (최우선)
-  │   └── LibreHardwareMonitor DLL → CPU/GPU/MB 온도, 전력, 팬 RPM
+  │   ├── LibreHardwareMonitor DLL → CPU/GPU/MB 온도, 전력, 팬 RPM
+  │   ├── 타임아웃 30초 (기존 5초), 5회 재시도 후 비활성화 (fail_count_)
+  │   └── 파일 로깅 → logs/lhm_bridge.log
   ├── [Windows] poll_wmi() → 캐시된 WMI COM 연결 사용 (wmi_svc_root_wmi_, wmi_svc_cimv2_)
   │   ├── Temperature fallback chain:
   │   │   1. MSAcpi_ThermalZoneTemperature (WMI ROOT\WMI)
@@ -170,7 +180,8 @@ SensorManager::poll_thread (500ms)
   ├── [macOS]   poll_iokit() → ThermalState + Battery + Mach CPU + Memory
   ├── [Linux]   poll_sysfs() → /sys/class/hwmon + /sys/class/thermal
   ├── poll_nvml() → NVIDIA GPU temp/power
-  └── poll_adl()  → AMD GPU (스켈레톤, 1회 로그 후 스킵)
+  └── poll_adl()  → AMD GPU (ADL2 함수 포인터: 온도, 팬 → 활성 어댑터 순회)
+        + get_fan_speeds(), get_voltages() 편의 메서드
         ↓
   update_reading(name, category, value, unit)
         ↓
@@ -205,7 +216,7 @@ occt_native --cli --test <type> --mode <mode> [옵션]
 
 # 테스트 타입: cpu, gpu, ram, storage, psu, benchmark
 # 공통 옵션: --duration, --threads, --report-dir, --json
-# CPU 전용: --mode avx2|avx512|sse|linpack|prime|cache|large_data|all
+# CPU 전용: --mode auto|avx2|avx512|sse|avx_float|linpack|prime|cache|large_data|all
 #           --load-pattern steady|variable|core_cycling
 #           --intensity normal|extreme
 # 종료코드: 0=PASS, 1=FAIL, 2=ERROR
@@ -220,6 +231,7 @@ occt_native --cli --test <type> --mode <mode> [옵션]
 | `OCCT_ENABLE_VULKAN` | OFF | Vulkan 컴퓨트 |
 | `OCCT_PORTABLE` | ON | 포터블 빌드 (정적 CRT) |
 | `OCCT_CONSOLE` | OFF | 콘솔 서브시스템 (CI용) |
+| `OCCT_BUILD_LHM_HELPER` | OFF | lhm-sensor-reader C# 헬퍼 빌드 |
 | `BUILD_TESTS` | ON | 테스트 빌드 |
 
 ## CI/CD 워크플로우 (windows-test.yml)
@@ -263,6 +275,8 @@ occt_native --cli --test <type> --mode <mode> [옵션]
 - `Click-ButtonByName`: 버튼 이름으로 검색+클릭 (InvokePattern)
 - `Click-SidebarPanel`: 사이드바 버튼을 텍스트 부분 매칭으로 탐색
 - 실제 테스트 시작/정지 수행 (CPU 13초, RAM 13초, Storage 8초 등)
+- `setAccessibleDescription()` 설정된 위젯 약 94개 → label-name 형제 탐색으로 값 읽기
+- 13개 자동화 검증 (GFLOPS, 에러 수, 온도 등)
 - 아티팩트: `gui-screenshots` (29장 PNG), `cli-test-logs` (8개 .log)
 
 ## 안전 시스템
@@ -298,6 +312,40 @@ SafetyGuardian (200ms 폴링)
 | 메모리 | GlobalMemoryStatusEx | kern.memorystatus_level | /proc/meminfo |
 | 팬 RPM | WMI Win32_Fan | - | sysfs hwmon |
 | WHEA | WEVTAPI | - | - |
+
+## 한국어 UI
+
+- 전체 14개 패널 파일에 한국어 문자열 적용
+- CLI 도움말 텍스트도 한국어
+- 주요 번역: 대시보드("대시보드"), CPU("CPU 스트레스 테스트"), GPU, RAM, Storage, PSU, 모니터, 벤치마크, 스케줄, 인증서, 시스템정보, 결과 등
+
+## GUI 추가 기능
+
+- **시스템 트레이**: QSystemTrayIcon (MainWindow)
+- **키보드 단축키**: Ctrl+1~6 (패널 전환), Escape (긴급 정지 → `stopAllTests()`)
+- **사운드 알림**: `playTestCompleteSound()`, `playTestErrorSound()`
+- **RAM 패널**: 직접 MB 지정 모드 (QCheckBox + QSpinBox)
+- **Storage 패널**: Duration 콤보 추가
+
+## 스토리지 엔진 유니코드 지원
+
+- `CreateFileA` → `CreateFileW`, `DeleteFileA` → `DeleteFileW`
+- `utf8_to_wide()` 헬퍼 함수로 UTF-8 경로를 와이드 문자열로 변환
+- `seq_read`/`seq_write`: duration > 0일 때 seek-to-start로 반복 루프
+- 파일 로깅 → `logs/storage_engine.log`
+
+## lhm-sensor-reader (C# 헬퍼)
+
+- 위치: `tools/lhm-sensor-reader/`
+- `JsonSerializerContext` 소스 생성기 사용 (트리밍 호환)
+- Self-contained 단일 파일 게시 (~15-20MB)
+- CI 워크플로우(`build.yml`, `build-windows.yml`, `gui-smoke-test.yml`)에서 `dotnet publish`로 빌드
+
+## 파일 로깅
+
+- `lhm_bridge.cpp` → `logs/lhm_bridge.log`
+- `storage_engine.cpp` → `logs/storage_engine.log`
+- `file_logger.h/cpp` 유틸리티 사용 (5MB 로테이션)
 
 ## 파일 수정 시 체크리스트
 
