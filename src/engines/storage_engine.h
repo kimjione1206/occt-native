@@ -8,6 +8,8 @@
 #include <thread>
 #include <vector>
 
+#include <QString>
+
 #include "base_engine.h"
 #include "storage/verify_block.h"
 
@@ -139,6 +141,9 @@ private:
 
     std::string test_file_path_;
     std::string last_error_;
+
+    void log(const std::string& msg);
+    QString log_file_;
 
     uint32_t block_size_kb_ = 4;      // Random I/O block size in KB (default 4KB)
     bool force_direct_io_ = true;      // Use O_DIRECT / FILE_FLAG_NO_BUFFERING

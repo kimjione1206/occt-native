@@ -63,8 +63,8 @@ struct LhmBridge::Impl {
         proc.setArguments({"--json", "--once"});
         proc.start();
 
-        if (!proc.waitForFinished(10000)) {
-            log("[LHM] Helper timed out after 10s");
+        if (!proc.waitForFinished(30000)) {
+            log("[LHM] Helper timed out after 30s");
             proc.kill();
             return false;
         }

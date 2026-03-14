@@ -7,6 +7,12 @@
 #include <iostream>
 #include <random>
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QTextStream>
+#include <QDateTime>
+
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
     #define NOMINMAX
@@ -64,6 +70,19 @@ StorageEngine::~StorageEngine() {
     stop();
 }
 
+void StorageEngine::log(const std::string& msg) {
+    if (log_file_.isEmpty()) {
+        QString logDir = QCoreApplication::applicationDirPath() + "/logs";
+        QDir().mkpath(logDir);
+        log_file_ = logDir + "/storage_engine.log";
+    }
+    QFile f(log_file_);
+    if (f.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream ts(&f);
+        ts << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << " " << QString::fromStdString(msg) << "\n";
+    }
+}
+
 void StorageEngine::set_block_size_kb(uint32_t kb) {
     block_size_kb_ = kb;
 }
@@ -84,6 +103,7 @@ bool StorageEngine::start(StorageMode mode, const std::string& path,
             std::lock_guard<std::mutex> lk(metrics_mutex_);
             last_error_ = "Storage test already running";
         }
+        log("[Storage] Start rejected: test already running");
         return false;
     }
 
@@ -111,6 +131,11 @@ bool StorageEngine::start(StorageMode mode, const std::string& path,
     if (worker_.joinable()) {
         worker_.join();
     }
+
+    log("[Storage] Starting test: mode=" + std::to_string(static_cast<int>(mode))
+        + " dir=" + dir + " file_size=" + std::to_string(file_size_bytes)
+        + " queue_depth=" + std::to_string(queue_depth));
+
     worker_ = std::thread(&StorageEngine::run, this, mode, dir,
                           file_size_bytes, queue_depth);
     return true;
@@ -118,6 +143,8 @@ bool StorageEngine::start(StorageMode mode, const std::string& path,
 
 void StorageEngine::stop() {
     std::lock_guard<std::mutex> guard(start_stop_mutex_);
+
+    log("[Storage] Stop requested");
 
     stop_requested_.store(true);
     if (worker_.joinable()) {
@@ -133,6 +160,7 @@ void StorageEngine::stop() {
         test_file_path_.clear();
     }
     if (!path_copy.empty()) {
+        log("[Storage] Stopped. File cleanup: " + path_copy);
         std::thread([path_copy]() {
 #if defined(_WIN32)
             DeleteFileA(path_copy.c_str());
@@ -283,6 +311,7 @@ void StorageEngine::free_aligned(uint8_t* ptr) {
 void StorageEngine::run(StorageMode mode, const std::string& path,
                         uint64_t file_size_bytes, int queue_depth) {
     try {
+    log("[Storage] Worker thread started");
     // Build test file path
     std::string dir = path;
     if (dir.empty()) dir = ".";
@@ -324,6 +353,7 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
                 std::lock_guard<std::mutex> elk(metrics_mutex_);
                 last_error_ = "Failed to create test file at: " + test_file_path_;
             }
+            log("[Storage] Error: Failed to create test file at: " + test_file_path_);
             free_aligned(io_buf);
             running_.store(false);
             return;
@@ -390,6 +420,7 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
                 metrics_.state = "error";
                 metrics_.error_count++;
             }
+            log("[Storage] Error: Failed to open test file: " + test_file_path_);
             free_aligned(io_buf);
             running_.store(false);
             return;
@@ -429,6 +460,7 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
         std::lock_guard<std::mutex> lk(metrics_mutex_);
         metrics_.state = "completed";
     }
+    log("[Storage] Worker completed. State: completed");
 
     running_.store(false);
     } catch (const std::exception& e) {
@@ -437,6 +469,7 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
             last_error_ = std::string("Exception: ") + e.what();
             metrics_.state = "error";
         }
+        log("[Storage] Exception: " + std::string(e.what()));
         running_.store(false);
     } catch (...) {
         {
@@ -444,6 +477,7 @@ void StorageEngine::run(StorageMode mode, const std::string& path,
             last_error_ = "Unknown exception in storage worker";
             metrics_.state = "error";
         }
+        log("[Storage] Unknown exception in worker thread");
         running_.store(false);
     }
 }
