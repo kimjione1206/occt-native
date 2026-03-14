@@ -71,7 +71,7 @@ QFrame* StoragePanel::createSettingsSection()
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
-    modeCombo_->setAccessibleName("storage_mode_combo");
+    modeCombo_->setObjectName("storage_mode_combo");
     modeCombo_->addItems({
         "Sequential Read",
         "Sequential Write",
@@ -113,7 +113,7 @@ QFrame* StoragePanel::createSettingsSection()
     layout->addSpacing(20);
 
     startStopBtn_ = new QPushButton("Start Test", frame);
-    startStopBtn_->setAccessibleName("storage_start_stop_btn");
+    startStopBtn_->setObjectName("storage_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
@@ -144,7 +144,7 @@ QFrame* StoragePanel::createMonitoringSection()
 
     // Status label (hidden by default, shown on error)
     statusLabel_ = new QLabel(frame);
-    statusLabel_->setAccessibleName("storage_status");
+    statusLabel_->setObjectName("storage_status");
     statusLabel_->setWordWrap(true);
     statusLabel_->setVisible(false);
     layout->addWidget(statusLabel_);
@@ -170,32 +170,32 @@ QFrame* StoragePanel::createMonitoringSection()
     auto* metricsRow1 = new QHBoxLayout();
     metricsRow1->setSpacing(12);
     iopsLabel_ = createMetric("IOPS", "0");
-    iopsLabel_->setAccessibleName("storage_iops_value");
+    iopsLabel_->setObjectName("storage_iops_value");
     metricsRow1->addWidget(iopsLabel_->parentWidget());
     throughputLabel_ = createMetric("Throughput", "0 MB/s");
-    throughputLabel_->setAccessibleName("storage_throughput_value");
+    throughputLabel_->setObjectName("storage_throughput_value");
     metricsRow1->addWidget(throughputLabel_->parentWidget());
     latencyLabel_ = createMetric("Avg Latency", "-- ms");
-    latencyLabel_->setAccessibleName("storage_latency_value");
+    latencyLabel_->setObjectName("storage_latency_value");
     metricsRow1->addWidget(latencyLabel_->parentWidget());
     blocksVerifiedLabel_ = createMetric("Blocks Verified", "0");
-    blocksVerifiedLabel_->setAccessibleName("storage_blocks_verified");
+    blocksVerifiedLabel_->setObjectName("storage_blocks_verified");
     metricsRow1->addWidget(blocksVerifiedLabel_->parentWidget());
 
     // Row 2: Verify Errors, CRC Errors, Pattern Errors, Verify Speed
     auto* metricsRow2 = new QHBoxLayout();
     metricsRow2->setSpacing(12);
     verifyErrorsLabel_ = createMetric("Verify Errors", "0");
-    verifyErrorsLabel_->setAccessibleName("storage_verify_errors");
+    verifyErrorsLabel_->setObjectName("storage_verify_errors");
     metricsRow2->addWidget(verifyErrorsLabel_->parentWidget());
     crcErrorsLabel_ = createMetric("CRC Errors", "0");
-    crcErrorsLabel_->setAccessibleName("storage_crc_errors");
+    crcErrorsLabel_->setObjectName("storage_crc_errors");
     metricsRow2->addWidget(crcErrorsLabel_->parentWidget());
     patternErrorsLabel_ = createMetric("Pattern Errors", "0");
-    patternErrorsLabel_->setAccessibleName("storage_pattern_errors");
+    patternErrorsLabel_->setObjectName("storage_pattern_errors");
     metricsRow2->addWidget(patternErrorsLabel_->parentWidget());
     verifyMbsLabel_ = createMetric("Verify Speed", "-- MB/s");
-    verifyMbsLabel_->setAccessibleName("storage_verify_mbs");
+    verifyMbsLabel_->setObjectName("storage_verify_mbs");
     metricsRow2->addWidget(verifyMbsLabel_->parentWidget());
 
     layout->addLayout(metricsRow1);

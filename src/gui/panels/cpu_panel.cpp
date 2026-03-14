@@ -74,7 +74,7 @@ QFrame* CpuPanel::createSettingsSection()
     layout->addWidget(modeLabel);
 
     modeCombo_ = new QComboBox(frame);
-    modeCombo_->setAccessibleName("cpu_mode_combo");
+    modeCombo_->setObjectName("cpu_mode_combo");
     modeCombo_->addItems({
         "AVX2 FMA",
         "AVX-512 FMA",
@@ -93,7 +93,7 @@ QFrame* CpuPanel::createSettingsSection()
     layout->addWidget(patternLabel);
 
     loadPatternCombo_ = new QComboBox(frame);
-    loadPatternCombo_->setAccessibleName("cpu_load_pattern_combo");
+    loadPatternCombo_->setObjectName("cpu_load_pattern_combo");
     loadPatternCombo_->addItem("Steady", QStringLiteral("STEADY"));
     loadPatternCombo_->addItem("Variable (change every 10 min)", QStringLiteral("VARIABLE"));
     loadPatternCombo_->addItem("Core Cycling", QStringLiteral("CORE_CYCLING"));
@@ -113,7 +113,7 @@ QFrame* CpuPanel::createSettingsSection()
     connect(threadSlider_, &QSlider::valueChanged, this, &CpuPanel::onThreadSliderChanged);
 
     threadValueLabel_ = new QLabel(QString::number(maxThreads), frame);
-    threadValueLabel_->setAccessibleName("cpu_thread_count");
+    threadValueLabel_->setObjectName("cpu_thread_count");
     threadValueLabel_->setFixedWidth(30);
     threadValueLabel_->setAlignment(Qt::AlignCenter);
     threadValueLabel_->setStyleSheet(styles::kStatusIdle);
@@ -132,7 +132,7 @@ QFrame* CpuPanel::createSettingsSection()
     layout->addWidget(durationLabel);
 
     durationCombo_ = new QComboBox(frame);
-    durationCombo_->setAccessibleName("cpu_duration_combo");
+    durationCombo_->setObjectName("cpu_duration_combo");
     durationCombo_->addItem("1 minute", 60);
     durationCombo_->addItem("5 minutes", 300);
     durationCombo_->addItem("10 minutes", 600);
@@ -146,7 +146,7 @@ QFrame* CpuPanel::createSettingsSection()
 
     // Start/Stop button
     startStopBtn_ = new QPushButton("Start Test", frame);
-    startStopBtn_->setAccessibleName("cpu_start_stop_btn");
+    startStopBtn_->setObjectName("cpu_start_stop_btn");
     startStopBtn_->setCursor(Qt::PointingHandCursor);
     startStopBtn_->setFixedHeight(48);
     startStopBtn_->setStyleSheet(
@@ -196,16 +196,16 @@ QFrame* CpuPanel::createMonitoringSection()
     };
 
     gflopsValueLabel_ = createMetric("GFLOPS", "0.00");
-    gflopsValueLabel_->setAccessibleName("cpu_gflops_value");
+    gflopsValueLabel_->setObjectName("cpu_gflops_value");
     metricsLayout->addWidget(gflopsValueLabel_->parentWidget());
     tempLabel_ = createMetric("Temperature", "-- \u00B0C");
-    tempLabel_->setAccessibleName("cpu_temp_value");
+    tempLabel_->setObjectName("cpu_temp_value");
     metricsLayout->addWidget(tempLabel_->parentWidget());
     powerLabel_ = createMetric("Power", "-- W");
-    powerLabel_->setAccessibleName("cpu_power_value");
+    powerLabel_->setObjectName("cpu_power_value");
     metricsLayout->addWidget(powerLabel_->parentWidget());
     freqLabel_ = createMetric("Frequency", "-- MHz");
-    freqLabel_->setAccessibleName("cpu_freq_value");
+    freqLabel_->setObjectName("cpu_freq_value");
     metricsLayout->addWidget(freqLabel_->parentWidget());
 
     // Error count metric (in red)
@@ -216,7 +216,7 @@ QFrame* CpuPanel::createMonitoringSection()
     auto* errLabel = new QLabel("Errors", errorCard);
     errLabel->setStyleSheet(styles::kSmallInfo);
     errorCountLabel_ = new QLabel("0", errorCard);
-    errorCountLabel_->setAccessibleName("cpu_error_count");
+    errorCountLabel_->setObjectName("cpu_error_count");
     errorCountLabel_->setStyleSheet("color: #27AE60; font-size: 18px; font-weight: bold; border: none; background: transparent;");
     ecl->addWidget(errLabel);
     ecl->addWidget(errorCountLabel_);
@@ -226,7 +226,7 @@ QFrame* CpuPanel::createMonitoringSection()
 
     // GFLOPS chart
     gflopsChart_ = new RealtimeChart(frame);
-    gflopsChart_->setAccessibleName("cpu_gflops_chart");
+    gflopsChart_->setObjectName("cpu_gflops_chart");
     gflopsChart_->setTitle("GFLOPS Over Time");
     gflopsChart_->setUnit("GFLOPS");
     gflopsChart_->setLineColor(QColor(192, 57, 43));
@@ -256,7 +256,7 @@ QFrame* CpuPanel::createMonitoringSection()
     statusLayout->setContentsMargins(12, 8, 12, 8);
 
     statusLabel_ = new QLabel("Idle", statusFrame);
-    statusLabel_->setAccessibleName("cpu_status");
+    statusLabel_->setObjectName("cpu_status");
     statusLabel_->setStyleSheet(styles::kStatusIdle);
     statusLayout->addWidget(statusLabel_);
     statusLayout->addStretch();
@@ -278,7 +278,7 @@ void CpuPanel::rebuildCoreGrid(int coreCount)
     int cols = 8; // 8 cores per row
     for (int i = 0; i < coreCount; ++i) {
         auto* lbl = new QLabel(QString("C%1").arg(i), coreGridFrame_);
-        lbl->setAccessibleName(QString("cpu_core_%1").arg(i));
+        lbl->setObjectName(QString("cpu_core_%1").arg(i));
         lbl->setAlignment(Qt::AlignCenter);
         lbl->setFixedSize(40, 28);
         lbl->setStyleSheet(

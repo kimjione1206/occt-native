@@ -130,7 +130,7 @@ QFrame* CertificatePanel::createProgressSection()
     layout->addWidget(title);
 
     certProgress_ = new QProgressBar(frame);
-    certProgress_->setAccessibleName("cert_progress");
+    certProgress_->setObjectName("cert_progress");
     certProgress_->setRange(0, 100);
     certProgress_->setValue(0);
     certProgress_->setTextVisible(true);
@@ -142,12 +142,12 @@ QFrame* CertificatePanel::createProgressSection()
     layout->addWidget(certProgress_);
 
     currentStepLabel_ = new QLabel("Not started", frame);
-    currentStepLabel_->setAccessibleName("cert_current_step");
+    currentStepLabel_->setObjectName("cert_current_step");
     currentStepLabel_->setStyleSheet("color: #8B949E; font-size: 13px; border: none; background: transparent;");
     layout->addWidget(currentStepLabel_);
 
     statusLabel_ = new QLabel("Select a tier and click Start Certification", frame);
-    statusLabel_->setAccessibleName("cert_status");
+    statusLabel_->setObjectName("cert_status");
     statusLabel_->setStyleSheet(
         "color: #C9D1D9; font-size: 12px; border: none; background-color: #0D1117; "
         "padding: 12px; border-radius: 6px;"

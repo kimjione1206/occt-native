@@ -49,7 +49,7 @@ QFrame* SysInfoPanel::createSection(const QString& title,
         auto* valLabel = new QLabel(kv.second, frame);
         valLabel->setStyleSheet("color: #C9D1D9; font-size: 13px; border: none; background: transparent;");
         valLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        valLabel->setAccessibleName(
+        valLabel->setObjectName(
             "sysinfo_" + title.toLower().replace(" ", "_") + "_" + kv.first.toLower().replace(" ", "_"));
 
         grid->addWidget(keyLabel, row, 0);

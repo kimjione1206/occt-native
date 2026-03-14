@@ -206,7 +206,7 @@ QFrame* SchedulePanel::createProgressSection()
     layout->addWidget(progressLabel);
 
     overallProgress_ = new QProgressBar(frame);
-    overallProgress_->setAccessibleName("schedule_progress");
+    overallProgress_->setObjectName("schedule_progress");
     overallProgress_->setRange(0, 100);
     overallProgress_->setValue(0);
     overallProgress_->setTextVisible(true);
@@ -219,13 +219,13 @@ QFrame* SchedulePanel::createProgressSection()
 
     // Current step info
     currentStepLabel_ = new QLabel("No schedule running", frame);
-    currentStepLabel_->setAccessibleName("schedule_current_step");
+    currentStepLabel_->setObjectName("schedule_current_step");
     currentStepLabel_->setStyleSheet("color: #8B949E; font-size: 14px; border: none; background: transparent;");
     layout->addWidget(currentStepLabel_);
 
     // Status log
     statusLabel_ = new QLabel("Ready", frame);
-    statusLabel_->setAccessibleName("schedule_status");
+    statusLabel_->setObjectName("schedule_status");
     statusLabel_->setStyleSheet(
         "color: #C9D1D9; font-size: 12px; border: none; background-color: #0D1117; "
         "padding: 12px; border-radius: 6px;"

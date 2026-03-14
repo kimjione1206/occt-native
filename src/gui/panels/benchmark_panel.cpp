@@ -62,7 +62,7 @@ QFrame* BenchmarkPanel::createControlSection()
     titleLayout->addWidget(title);
 
     statusLabel_ = new QLabel("Ready to run benchmark", frame);
-    statusLabel_->setAccessibleName("bench_status");
+    statusLabel_->setObjectName("bench_status");
     statusLabel_->setStyleSheet(styles::kPanelSubtitle);
     titleLayout->addWidget(statusLabel_);
 
@@ -130,13 +130,13 @@ QFrame* BenchmarkPanel::createLatencySection()
     };
 
     createLatRow("L1", l1LatLabel_, l1LatBar_);
-    l1LatLabel_->setAccessibleName("bench_l1_latency");
+    l1LatLabel_->setObjectName("bench_l1_latency");
     createLatRow("L2", l2LatLabel_, l2LatBar_);
-    l2LatLabel_->setAccessibleName("bench_l2_latency");
+    l2LatLabel_->setObjectName("bench_l2_latency");
     createLatRow("L3", l3LatLabel_, l3LatBar_);
-    l3LatLabel_->setAccessibleName("bench_l3_latency");
+    l3LatLabel_->setObjectName("bench_l3_latency");
     createLatRow("DRAM", dramLatLabel_, dramLatBar_);
-    dramLatLabel_->setAccessibleName("bench_dram_latency");
+    dramLatLabel_->setObjectName("bench_dram_latency");
 
     return latencyFrame_;
 }
@@ -189,13 +189,13 @@ QFrame* BenchmarkPanel::createBandwidthSection()
     };
 
     createBwRow("L1", l1BwLabel_, l1BwBar_);
-    l1BwLabel_->setAccessibleName("bench_l1_bandwidth");
+    l1BwLabel_->setObjectName("bench_l1_bandwidth");
     createBwRow("L2", l2BwLabel_, l2BwBar_);
-    l2BwLabel_->setAccessibleName("bench_l2_bandwidth");
+    l2BwLabel_->setObjectName("bench_l2_bandwidth");
     createBwRow("L3", l3BwLabel_, l3BwBar_);
-    l3BwLabel_->setAccessibleName("bench_l3_bandwidth");
+    l3BwLabel_->setObjectName("bench_l3_bandwidth");
     createBwRow("DRAM", dramBwLabel_, dramBwBar_);
-    dramBwLabel_->setAccessibleName("bench_dram_bandwidth");
+    dramBwLabel_->setObjectName("bench_dram_bandwidth");
 
     return bwFrame_;
 }
@@ -235,15 +235,15 @@ QFrame* BenchmarkPanel::createMemorySection()
     };
 
     memReadLabel_ = createResultRow("Read Bandwidth");
-    memReadLabel_->setAccessibleName("bench_mem_read");
+    memReadLabel_->setObjectName("bench_mem_read");
     memWriteLabel_ = createResultRow("Write Bandwidth");
-    memWriteLabel_->setAccessibleName("bench_mem_write");
+    memWriteLabel_->setObjectName("bench_mem_write");
     memCopyLabel_ = createResultRow("Copy Bandwidth");
-    memCopyLabel_->setAccessibleName("bench_mem_copy");
+    memCopyLabel_->setObjectName("bench_mem_copy");
     memLatencyLabel_ = createResultRow("Random Latency");
-    memLatencyLabel_->setAccessibleName("bench_mem_latency");
+    memLatencyLabel_->setObjectName("bench_mem_latency");
     memChannelsLabel_ = createResultRow("Channels (est.)");
-    memChannelsLabel_->setAccessibleName("bench_mem_channels");
+    memChannelsLabel_->setObjectName("bench_mem_channels");
 
     return memFrame_;
 }
