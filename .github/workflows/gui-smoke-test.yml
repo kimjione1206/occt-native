@@ -195,14 +195,15 @@ jobs:
         }
 
         $last = $cpuMetrics[-1]
-        # Verify fields that should also appear in UI
-        $requiredFields = @("gflops", "errors", "threads")
+        # CPU metrics are nested under "cpu" key: {"cpu":{"gflops":...},"type":"metric"}
+        $cpu = $last.cpu
+        $requiredFields = @("gflops", "error_count", "threads")
         foreach ($f in $requiredFields) {
-            if ($null -eq $last.$f) {
+            if ($null -eq $cpu.$f) {
                 Write-Error "Missing field '$f' in CPU metric JSON"
                 exit 1
             }
-            Write-Host "  CLI CPU.$f = $($last.$f)"
+            Write-Host "  CLI CPU.$f = $($cpu.$f)"
         }
         Write-Host "PASS: CPU CLI JSON structure validated"
 
@@ -213,9 +214,9 @@ jobs:
         foreach ($line in $ramLines) {
             try {
                 $j = $line.Trim() | ConvertFrom-Json
-                if ($j.type -eq "metric" -and $null -ne $j.errors_found) {
-                    Write-Host "  CLI RAM.errors_found = $($j.errors_found)"
-                    Write-Host "  CLI RAM.pages_locked = $($j.pages_locked)"
+                if ($j.type -eq "metric" -and $null -ne $j.ram) {
+                    Write-Host "  CLI RAM.errors = $($j.ram.errors)"
+                    Write-Host "  CLI RAM.pages_locked = $($j.ram.pages_locked)"
                     break
                 }
             } catch {}
@@ -229,10 +230,10 @@ jobs:
         foreach ($line in $stgLines) {
             try {
                 $j = $line.Trim() | ConvertFrom-Json
-                if ($j.type -eq "metric") {
-                    Write-Host "  CLI Storage.throughput_mbs = $($j.throughput_mbs)"
-                    if ($null -ne $j.verify_errors) {
-                        Write-Host "  CLI Storage.verify_errors = $($j.verify_errors)"
+                if ($j.type -eq "metric" -and $null -ne $j.storage) {
+                    Write-Host "  CLI Storage.write_mbps = $($j.storage.write_mbps)"
+                    if ($null -ne $j.storage.verify_errors) {
+                        Write-Host "  CLI Storage.verify_errors = $($j.storage.verify_errors)"
                     }
                     break
                 }
