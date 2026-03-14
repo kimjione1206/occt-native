@@ -307,14 +307,6 @@ void SensorManager::poll_thread_func(int interval_ms) {
         if (has_nvml_) poll_nvml();
         if (has_adl_) poll_adl();
 
-        // Periodic summary (every 100 polls)
-        poll_count_++;
-        if (poll_count_ % 100 == 0) {
-            std::lock_guard<std::mutex> lk(readings_mutex_);
-            fprintf(stderr, "[Sensor] Poll #%d completed, %zu readings active\n",
-                    poll_count_, readings_.size());
-        }
-
         std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
     }
 }
@@ -328,21 +320,6 @@ void SensorManager::update_reading(const std::string& sensor_name,
 
     for (auto& r : readings_) {
         if (r.name == sensor_name && r.category == category) {
-            // Log significant changes (DEBUG level)
-            double delta = std::abs(value - r.value);
-            bool significant_change = false;
-            if (unit == "°C" || unit == "C") significant_change = delta >= 1.0;
-            else if (unit == "W") significant_change = delta >= 0.5;
-            else if (unit == "MHz") significant_change = delta >= 50.0;
-            else if (unit == "%") significant_change = delta >= 5.0;
-            else significant_change = delta >= 0.1;
-
-            if (significant_change && r.value != 0.0) {
-                fprintf(stderr, "[Sensor] %s/%s: %.1f -> %.1f %s\n",
-                        category.c_str(), sensor_name.c_str(),
-                        r.value, value, unit.c_str());
-            }
-
             r.value = value;
             r.min_value = std::min(r.min_value, value);
             r.max_value = std::max(r.max_value, value);
