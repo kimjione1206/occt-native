@@ -39,10 +39,13 @@ static double compute_scalar_expected(const occt::cpu::VerifySeedSet& seeds, int
 }
 
 // 다중 시드용 non-FMA 오버로드
+// volatile로 mul/add 분리를 강제하여 컴파일러의 FMA 최적화를 방지
+// (SSE intrinsic의 separate mul+add와 정확히 동일한 결과 보장)
 static double compute_scalar_expected_nofma(const occt::cpu::VerifySeedSet& seeds, int iterations) {
     double acc = seeds.seed;
     for (int i = 0; i < iterations; ++i) {
-        acc = acc * seeds.mul + seeds.add;
+        volatile double tmp = acc * seeds.mul;
+        acc = tmp + seeds.add;
     }
     return acc;
 }
