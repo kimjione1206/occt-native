@@ -41,6 +41,7 @@ private:
     std::unique_ptr<Impl> impl_;
 #endif
     bool available_ = false;
+    int fail_count_ = 0;
 };
 
 } // namespace occt

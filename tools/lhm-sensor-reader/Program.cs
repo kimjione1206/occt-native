@@ -58,10 +58,14 @@ public class Program
         try
         {
             computer.Open();
+            Console.Error.WriteLine("[LHM-Reader] Computer.Open() succeeded");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            var error = new { error = "admin_required", message = "Run as Administrator for hardware sensor access" };
+            Console.Error.WriteLine($"[LHM-Reader] Computer.Open() failed: {ex.GetType().Name}: {ex.Message}");
+            if (ex.InnerException != null)
+                Console.Error.WriteLine($"[LHM-Reader] Inner: {ex.InnerException.Message}");
+            var error = new { error = "open_failed", message = ex.Message };
             Console.WriteLine(JsonSerializer.Serialize(error, JsonOptions));
             return 2;
         }
@@ -70,8 +74,20 @@ public class Program
         {
             if (once)
             {
-                var output = CollectSensorData(computer);
-                Console.WriteLine(JsonSerializer.Serialize(output, JsonOptions));
+                try
+                {
+                    var output = CollectSensorData(computer);
+                    var json = JsonSerializer.Serialize(output, JsonOptions);
+                    Console.Error.WriteLine($"[LHM-Reader] Collected {output.Hardware.Count} hardware entries");
+                    Console.WriteLine(json);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[LHM-Reader] CollectSensorData failed: {ex.Message}");
+                    var error = new { error = "collect_failed", message = ex.Message };
+                    Console.WriteLine(JsonSerializer.Serialize(error, JsonOptions));
+                    return 1;
+                }
                 return 0;
             }
 

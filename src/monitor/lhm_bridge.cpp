@@ -47,17 +47,39 @@ struct LhmBridge::Impl {
         proc.setArguments({"--json", "--once"});
         proc.start();
 
-        if (!proc.waitForFinished(5000)) {
+        if (!proc.waitForFinished(10000)) {
+            std::cerr << "[LHM] Helper timed out after 10s" << std::endl;
             proc.kill();
             return false;
         }
 
-        if (proc.exitCode() != 0) return false;
-
         QByteArray data = proc.readAllStandardOutput();
+        QByteArray errData = proc.readAllStandardError();
+        int exitCode = proc.exitCode();
+
+        if (!errData.isEmpty()) {
+            std::cerr << "[LHM] Helper stderr: " << errData.toStdString() << std::endl;
+        }
+
+        if (exitCode != 0) {
+            std::cerr << "[LHM] Helper exited with code " << exitCode
+                      << ", stdout: " << data.left(500).toStdString() << std::endl;
+            return false;
+        }
+
+        if (data.isEmpty()) {
+            std::cerr << "[LHM] Helper returned empty output" << std::endl;
+            return false;
+        }
+
         QJsonParseError err;
         QJsonDocument doc = QJsonDocument::fromJson(data, &err);
-        if (err.error != QJsonParseError::NoError) return false;
+        if (err.error != QJsonParseError::NoError) {
+            std::cerr << "[LHM] JSON parse error: " << err.errorString().toStdString()
+                      << " at offset " << err.offset << std::endl;
+            std::cerr << "[LHM] Raw output: " << data.left(500).toStdString() << std::endl;
+            return false;
+        }
 
         if (!doc.isObject()) return false;
         QJsonObject root = doc.object();
@@ -112,9 +134,14 @@ bool LhmBridge::is_available() const { return available_; }
 void LhmBridge::poll(std::vector<SensorReading>& out) {
     if (!available_) return;
     if (!impl_->poll_helper(out)) {
-        // Helper failed – mark unavailable so caller falls back to WMI
-        available_ = false;
-        std::cerr << "[LHM] Helper process failed, disabling bridge" << std::endl;
+        fail_count_++;
+        std::cerr << "[LHM] Helper poll failed (attempt " << fail_count_ << "/5)" << std::endl;
+        if (fail_count_ >= 5) {
+            available_ = false;
+            std::cerr << "[LHM] Helper failed 5 times, disabling bridge" << std::endl;
+        }
+    } else {
+        fail_count_ = 0; // Reset on success
     }
 }
 
