@@ -130,8 +130,8 @@ bool lucas_lehmer(int p) {
     }
     return s == 0;
 #else
-    // MSVC simplified version
-    if (p > 30) return false; // Can't handle without big integers
+    // MSVC: _umul128/_udiv128로 128비트 산술 가능 (p <= 60)
+    if (p > 60) return false;
     uint64_t mp = (1ULL << p) - 1;
     uint64_t s = 4;
     for (int i = 0; i < p - 2; ++i) {
