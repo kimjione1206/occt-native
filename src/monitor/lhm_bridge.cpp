@@ -145,16 +145,59 @@ bool LhmBridge::initialize() {
 bool LhmBridge::is_available() const { return available_; }
 
 void LhmBridge::poll(std::vector<SensorReading>& out) {
-    if (!available_) return;
-    if (!impl_->poll_helper(out)) {
+    if (!available_) {
+        // Exponential backoff recovery: retry after 60s, 120s, 240s... max 300s
+        if (disable_count_ > 0) {
+            auto now = std::chrono::steady_clock::now();
+            int backoff_secs = std::min(60 * (1 << (disable_count_ - 1)), 300);
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                now - last_poll_time_).count();
+            if (elapsed >= backoff_secs) {
+                available_ = true;
+                fail_count_ = 0;
+                impl_->log("[LHM] Re-enabling after " + std::to_string(backoff_secs)
+                           + "s backoff (attempt " + std::to_string(disable_count_) + ")");
+            }
+        }
+        if (!available_) {
+            // Return cached data if available
+            if (!cached_readings_.empty()) {
+                out = cached_readings_;
+            }
+            return;
+        }
+    }
+
+    // Rate limit: only call helper every POLL_INTERVAL_MS (3 seconds)
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - last_poll_time_).count();
+    if (elapsed_ms < POLL_INTERVAL_MS && !cached_readings_.empty()) {
+        out = cached_readings_;  // Return cached data
+        return;
+    }
+
+    // Actually poll the helper
+    std::vector<SensorReading> fresh;
+    if (!impl_->poll_helper(fresh)) {
         fail_count_++;
         impl_->log("[LHM] Poll failed (attempt " + std::to_string(fail_count_) + "/5)");
         if (fail_count_ >= 5) {
             available_ = false;
-            impl_->log("[LHM] Helper disabled after 5 failures");
+            disable_count_++;
+            last_poll_time_ = now;
+            impl_->log("[LHM] Disabled (will retry with backoff)");
+        }
+        // Return cached data on failure
+        if (!cached_readings_.empty()) {
+            out = cached_readings_;
         }
     } else {
-        fail_count_ = 0; // Reset on success
+        fail_count_ = 0;
+        disable_count_ = 0;  // Reset backoff on success
+        cached_readings_ = fresh;
+        out = fresh;
+        last_poll_time_ = now;
     }
 }
 
