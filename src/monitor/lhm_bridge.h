@@ -6,7 +6,6 @@
 #include <QString>
 #include <QVector>
 
-#include <chrono>
 #include <functional>
 #include <memory>
 
@@ -43,12 +42,6 @@ private:
 #endif
     bool available_ = false;
     int fail_count_ = 0;
-    int disable_count_ = 0;
-
-    // Cache: reuse last data between poll intervals
-    std::vector<SensorReading> cached_readings_;
-    std::chrono::steady_clock::time_point last_poll_time_;
-    static constexpr int POLL_INTERVAL_MS = 3000;  // LHM 호출 간격 (3초)
 };
 
 } // namespace occt
